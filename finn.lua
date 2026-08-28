@@ -331,14 +331,28 @@ local function sense(vol)
         end
     end
 
-    local others = 0
+    -- Anything else you want him to recognise, so the printer stops being a stranger:
+    -- FINN_KNOWN_HOSTS="NPIEE33CD=the office printer, NAS=the file box"
+    local labels = {}
+    for pair in (env("FINN_KNOWN_HOSTS") or ""):gmatch("[^,]+") do
+        local host, label = pair:match("^%s*(.-)%s*=%s*(.-)%s*$")
+        if host and host ~= "" then labels[host:lower()] = label end
+    end
+
+    local others, present = 0, {}
     for mac in pairs(assoc) do
-        local known = false
-        for _, l in pairs(roles) do if l and l.mac == mac then known = true end end
-        if not known then others = others + 1 end
+        local role_owned, host = false, nil
+        for _, l in pairs(roles) do
+            if l and l.mac == mac then role_owned = true end
+        end
+        for _, l in ipairs(ls) do if l.mac == mac then host = l.host end end
+        local label = host and labels[host:lower()]
+        if label then present[#present + 1] = label
+        elseif not role_owned then others = others + 1 end
     end
     s.n.office_clients = size(assoc)
     s.n.office_others  = others
+    s.t.known_others   = (#present > 0) and table.concat(present, ", ") or nil
     s.sets.office_macs = keys(assoc)
 
     -- The wider network this router hangs off, seen through whichever interface faces it.
@@ -534,7 +548,7 @@ local FEEL = {
     tunnel_age_s      = { hi = "the line home gone quiet, a phantom limb" },
     vpn_peers_up      = { hi = "someone climbing in through the back window" },
     office_clients    = { hi = "another body in the room", lo = "the room thinning out" },
-    office_others     = { hi = "a body in the room that is not one of his three usual machines" },
+    office_others     = { hi = "a body in the room he cannot put a name to" },
     building_devices  = { hi = "the crowd on the other side of the wall swelling",
                           lo = "the corridor beyond the wall emptying" },
     desk_churn        = { hi = "someone poking him, chattering at him", lo = "that one gone still" },
@@ -1005,8 +1019,12 @@ local function render(s)
     if s.n.vpn_peers_up then
         out[#out+1] = string.format("- %d live peers on this router's own VPN", s.n.vpn_peers_up)
     end
-    out[#out+1] = string.format("- office wifi: %d devices, %d of them not one of your three",
-        s.n.office_clients, s.n.office_others)
+    out[#out+1] = string.format("- office wifi: %d devices%s, %s",
+        s.n.office_clients,
+        s.t.known_others and (", including " .. s.t.known_others) or "",
+        s.n.office_others > 0
+            and string.format("%d of them you have not named", s.n.office_others)
+            or "and nothing on it you have not named")
     local function dur(mins)
         if not mins then return "unknown" end
         if mins < 60 then return mins .. " min" end

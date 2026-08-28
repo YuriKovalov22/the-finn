@@ -98,6 +98,7 @@ quiet.
 |---|---|
 | who is on your wifi, and how strong their signal is | `iwinfo assoclist` |
 | who they are | `/tmp/dhcp.leases`, by hostname, so MAC rotation does not break it |
+| which of them are furniture rather than strangers | `FINN_KNOWN_HOSTS`, hostname to plain name |
 | whether a machine is in use or asleep | per-device flow churn in `/proc/net/nf_conntrack` |
 | how much each device is pulling and sending | conntrack byte counters, when they can be trusted (see below) |
 | how long each machine has been here, and since it last stirred | tracked between ticks |
