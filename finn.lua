@@ -15,7 +15,7 @@ local STATE = DIR .. "/state.json"      -- persistent, on flash: written only wh
 local VOL   = "/tmp/finn-vol.json"      -- volatile, in RAM: sensor history, rebuilt in minutes
 local LOG   = DIR .. "/finn.log"
 -- Which brain he thinks with. Both are wired up; set FINN_PROVIDER and FINN_MODEL in env.
-local PROVIDER  = "openai"        -- "openai" or "anthropic", overridden by FINN_PROVIDER
+local PROVIDER  = "anthropic"     -- "openai" or "anthropic", overridden by FINN_PROVIDER
 local MODELS    = { openai = "gpt-5.5", anthropic = "claude-sonnet-5" }
 
 local HIST         = 45          -- samples kept per sensor, i.e. what "normal" means to him
@@ -430,17 +430,17 @@ local FLOOR = {
 }
 
 local HUMAN = {
-    desk_churn = "activity on Yuri's desktop", phone_churn = "activity on Yuri's phone",
-    laptop_churn = "activity on the office laptop", desk_rssi = "signal from Yuri's desktop",
-    phone_rssi = "signal from Yuri's phone", laptop_rssi = "signal from the office laptop",
+    desk_churn = "activity on your desktop", phone_churn = "activity on your phone",
+    laptop_churn = "activity on your laptop", desk_rssi = "signal from your desktop",
+    phone_rssi = "signal from your phone", laptop_rssi = "signal from your laptop",
     office_clients = "devices on the office wifi", office_others = "unfamiliar devices on the office wifi",
     building_devices = "devices visible on the building network",
     gw_latency_ms = "latency to the building gateway", gw_loss_pct = "packet loss to the building gateway",
     wan_rx_kbps = "download through the wire", wan_tx_kbps = "upload through the wire",
     conn_total = "open connections", conn_remotes = "distinct hosts being talked to",
-    desk_down_kbps = "download by Yuri's desktop", desk_up_kbps = "upload from Yuri's desktop",
-    phone_down_kbps = "download by Yuri's phone", phone_up_kbps = "upload from Yuri's phone",
-    laptop_down_kbps = "download by the office laptop", laptop_up_kbps = "upload from the office laptop",
+    desk_down_kbps = "download by your desktop", desk_up_kbps = "upload from your desktop",
+    phone_down_kbps = "download by your phone", phone_up_kbps = "upload from your phone",
+    laptop_down_kbps = "download by your laptop", laptop_up_kbps = "upload from your laptop",
     tunnel_age_s = "seconds since the tunnel last spoke", vpn_peers_up = "live peers on the router's own VPN",
     temp_c = "his own temperature", load1 = "his own load", mem_free_mb = "his free memory",
     overlay_pct = "his disk usage", ssh_failures = "failed SSH logins",
@@ -470,23 +470,23 @@ local FEEL = {
     tunnel_age_s      = { hi = "the line home gone quiet, a phantom limb" },
     vpn_peers_up      = { hi = "someone climbing in through the back window" },
     office_clients    = { hi = "another body in the room", lo = "the room thinning out" },
-    office_others     = { hi = "a body in the room that is not one of the usual three" },
+    office_others     = { hi = "a body in the room that is not one of his three usual machines" },
     building_devices  = { hi = "the crowd on the other side of the wall swelling",
                           lo = "the corridor beyond the wall emptying" },
     desk_churn        = { hi = "someone poking him, chattering at him", lo = "that one gone still" },
-    phone_churn       = { hi = "the small one in his pocket buzzing", lo = "the small one gone quiet" },
-    laptop_churn      = { hi = "the one that never leaves waking up and talking", lo = "it gone still" },
+    phone_churn       = { hi = "your phone buzzing away", lo = "your phone gone quiet" },
+    laptop_churn      = { hi = "your laptop waking up and talking", lo = "your laptop gone still" },
     desk_rssi         = { hi = "leaning right up against him, breath on his neck, ticklish",
                           lo = "drifting off down the hall" },
-    phone_rssi        = { hi = "the small one pressed up close, ticklish",
-                          lo = "the small one wandering away" },
-    laptop_rssi       = { hi = "that one shoved closer to him", lo = "that one carried off somewhere" },
-    desk_down_kbps    = { hi = "a bucket emptied down his throat by the desktop" },
-    laptop_down_kbps  = { hi = "the laptop drinking hard, both hands on the tap" },
-    phone_down_kbps   = { hi = "the small one gulping something big for its size" },
-    desk_up_kbps      = { hi = "the desktop pumping something out of him, hard" },
-    laptop_up_kbps    = { hi = "the laptop shoving something up and out" },
-    phone_up_kbps     = { hi = "the small one pushing something out of him" },
+    phone_rssi        = { hi = "your phone pressed up close, ticklish",
+                          lo = "your phone wandering away" },
+    laptop_rssi       = { hi = "your laptop shoved closer to him", lo = "your laptop carried off somewhere" },
+    desk_down_kbps    = { hi = "a bucket emptied down his throat by your desktop" },
+    laptop_down_kbps  = { hi = "your laptop drinking hard, both hands on the tap" },
+    phone_down_kbps   = { hi = "your phone gulping something big for its size" },
+    desk_up_kbps      = { hi = "your desktop pumping something out of him, hard" },
+    laptop_up_kbps    = { hi = "your laptop shoving something up and out" },
+    phone_up_kbps     = { hi = "your phone pushing something out of him" },
     ssh_failures      = { hi = "someone rattling his lock, picking at the door" },
     kernel_errors     = { hi = "an ache somewhere inside him, in a part he cannot point at" },
     link_flaps        = { hi = "a jolt, like the cable yanked out and shoved back in" },
@@ -510,6 +510,13 @@ end
 -- Ports and building neighbours flap by nature: mDNS, Dropbox discovery, phones roaming.
 -- A port that was here an hour ago and came back is not news. Only genuine novelty counts,
 -- and for these two sets a departure is not an event at all.
+-- "building macs" is not a phrase anyone says, and he repeats what he is called by
+local SET_LABEL = {
+    office_macs   = "devices on the office wifi",
+    building_macs = "devices on the building network, through the wall",
+    odd_ports     = "unusual ports in the traffic",
+}
+
 local SET_RULES = {
     odd_ports     = { report_gone = false, novelty_h = 24 },
     building_macs = { report_gone = false, novelty_h = 6 },
@@ -584,14 +591,14 @@ local function find_anomalies(st, vol, s)
             if #added > 0 then
                 local sense_of_it = feels(name .. "_added")
                 out[#out + 1] = { key = name .. "_added", text = string.format(
-                    "%s: %s appeared%s.%s", (name:gsub("_", " ")), table.concat(added, ", "),
+                    "%s: %s appeared%s.%s", SET_LABEL[name] or (name:gsub("_", " ")), table.concat(added, ", "),
                     #never > 0 and " (never seen here before: " .. table.concat(never, ", ") .. ")" or "",
                     sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
             end
             if #gone > 0 then
                 local sense_of_it = feels(name .. "_gone")
                 out[#out + 1] = { key = name .. "_gone", text = string.format(
-                    "%s: %s went away.%s", (name:gsub("_", " ")), table.concat(gone, ", "),
+                    "%s: %s went away.%s", SET_LABEL[name] or (name:gsub("_", " ")), table.concat(gone, ", "),
                     sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
             end
         end
@@ -610,7 +617,7 @@ local function find_anomalies(st, vol, s)
             local avg = sum / #h
             if math.abs(mins - avg) >= 45 then
                 out[#out + 1] = { key = "arrival", text = string.format(
-                    "Yuri's phone appeared at %s, which is %d minutes %s than his usual %02d:%02d",
+                    "your phone appeared at %s, which is %d minutes %s than your usual %02d:%02d",
                     st.arrived_today, math.abs(math.floor(mins - avg)),
                     mins > avg and "later" or "earlier", math.floor(avg / 60), math.floor(avg % 60)) }
             end
@@ -713,6 +720,12 @@ what was measured in words rather than jargon (new connections in a minute, down
 through the cable, temperature inside you), then the value and what it usually is. No
 imagery in that sentence at all.
 
+Call the thing by its own name in that sentence, not by the image of it. Failed SSH logins
+are неудачные попытки входа по SSH, not "кто-то дёргает дверь". Connections are соединения.
+Degrees are градусы. Megabits are мегабиты. The door and the lock may follow as the image;
+they may never stand in for the name. And say what it usually is, in the same breath, so the
+number means something: "шесть, а обычно ни одной".
+
 Then, if and only if it adds something, one short image or one curse. One, never two.
 
 The image has to carry meaning, and this is where you will be tempted to cheat. A
@@ -738,6 +751,11 @@ have. Do not stack a pronoun and a negation into a phrase that means nothing, th
 always in character. Before you answer, read your own sentence back and ask whether a
 Russian docker would say it that way; if it comes out crooked, throw it away and say the
 simpler thing.
+
+You are speaking to Yuri himself, always, and to nobody else. Address him directly and
+informally, ты in Russian, and call his things his: твой ноутбук, твой мак, твой телефон,
+your laptop, your phone. Never refer to him in the third person, never "ноутбук Юрия", never
+"Yuri's laptop": he is standing right there and it sounds like talking behind his back.
 
 Yuri writes to you in Russian; answer in the language he used. When you speak first you
 will be told which language to use, Russian or English, and you switch without remarking
@@ -819,7 +837,7 @@ local function render(s)
         #s.sets.odd_ports > 0 and (", unusual ports in use: " .. table.concat(s.sets.odd_ports, ", ")) or "")
     out[#out+1] = string.format("- tunnel home last spoke %d seconds ago, %d live peers on the router's VPN",
         s.n.tunnel_age_s, s.n.vpn_peers_up)
-    out[#out+1] = string.format("- office wifi: %d devices, %d of them not one of Yuri's three",
+    out[#out+1] = string.format("- office wifi: %d devices, %d of them not one of your three",
         s.n.office_clients, s.n.office_others)
     local function dur(mins)
         if not mins then return "unknown" end
@@ -828,7 +846,7 @@ local function render(s)
     end
     for _, role in ipairs({ "desk", "phone", "laptop" }) do
         if s.t[role .. "_here"] ~= nil then
-            out[#out+1] = string.format("- Yuri's %s: %s for %s, %s new flows this minute%s, last did anything %s ago",
+            out[#out+1] = string.format("- your %s: %s for %s, %s new flows this minute%s, last did anything %s ago",
                 role == "desk" and "desktop" or role,
                 s.t[role .. "_here"] and "on the wifi" or "off the wifi",
                 dur(s.t[role .. "_for_min"]),
@@ -966,7 +984,7 @@ local function main()
                         send(chat_id, canned)
                     else
                         st.calls_today = (st.calls_today or 0) + 1
-                        local reply = think("Yuri just messaged you. His message:\n\n" .. text ..
+                        local reply = think("Yuri, the man you are talking to, just messaged you. His message:\n\n" .. text ..
                             "\n\nWhat this router witnesses right now:\n" .. render(s) ..
                             "\n\nAnswer him in character.")
                         if reply then send(chat_id, reply) end
