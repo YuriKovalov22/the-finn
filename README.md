@@ -76,6 +76,11 @@ you in whichever language you wrote in.
 | `/normal` | at most 5 a day, an hour apart |
 | `/chatty` | at most 10 a day, 15 minutes apart |
 
+The daily allowance opens gradually rather than all at once. Mornings are the richest hour
+for oddities, so a flat cap gets spent before eleven and leaves nothing for whatever happens
+at five; instead the budget unlocks in proportion to how much of the speaking window has
+passed, with one message always available so he is not mute at the start of the day.
+
 Commands are handled locally and cost nothing.
 
 Everything runs on the router. If the rest of your infrastructure is on fire, this still

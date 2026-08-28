@@ -698,6 +698,20 @@ local function render(s)
     return table.concat(out, "\n")
 end
 
+
+-- The morning is the richest hour for oddities: arrivals, machines waking, the building
+-- filling up. Left alone he would spend the whole day's allowance before eleven and have
+-- nothing left for whatever happens at five. So the allowance opens gradually across the
+-- speaking window, one message minimum so he is never mute at the start of the day.
+local function allowance_now(m)
+    if m.max <= 0 then return 0 end
+    local mins  = tonumber(os.date("%H")) * 60 + tonumber(os.date("%M"))
+    local start, stop = QUIET_FROM * 60, QUIET_TO * 60
+    local frac = (mins - start) / (stop - start)
+    if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+    return math.max(1, math.ceil(m.max * frac))
+end
+
 ----------------------------------------------------------------- bot commands
 
 local HELP = [[Что я умею.
@@ -723,8 +737,10 @@ local function handle_command(st, text)
     if cmd == "/status" then
         local m = MODES[st.mode or DEFAULT_MODE]
         return string.format(
-            "Режим %s, до %d в день. Сегодня сказал %d, потратил %d обращений к модели из %d.\nПоследний раз: %s.",
-            st.mode or DEFAULT_MODE, m.max, st.spoke_today or 0, st.calls_today or 0, CALL_BUDGET,
+            "Режим %s, до %d в день. К этому часу открыто %d, сказал %d.\n" ..
+            "Обращений к модели %d из %d. Последний раз: %s.",
+            st.mode or DEFAULT_MODE, m.max, allowance_now(m), st.spoke_today or 0,
+            st.calls_today or 0, CALL_BUDGET,
             st.last_spoke_at and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил")
     end
     return nil
@@ -812,7 +828,7 @@ local function main()
     local since = st.last_spoke_at and (os.time() - st.last_spoke_at) / 60 or 1e9
     local allowed = chat_id and #anomalies > 0
         and m.max > 0
-        and (st.spoke_today or 0) < m.max
+        and (st.spoke_today or 0) < allowance_now(m)
         and (st.calls_today or 0) < CALL_BUDGET
         and since >= m.gap
         and hour >= QUIET_FROM and hour < QUIET_TO
