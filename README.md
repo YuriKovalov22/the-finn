@@ -141,6 +141,7 @@ at no cost:
 | `/normal` | at most 5 a day, an hour apart |
 | `/chatty` | at most 10 a day, 15 minutes apart |
 | `/test` | no daily ceiling, one a minute, for two hours, then back to `/chatty` by itself |
+| `/voice` | `beep` plays a pip when he posts, `speak` reads the remark aloud, `off` keeps him to Telegram |
 
 Test mode spends its own budget. Otherwise an afternoon of watching him work leaves him mute
 for the rest of the day, which is exactly what happened here: two hours of testing burned 22
@@ -174,6 +175,21 @@ left to say. Diagnostics must not eat the event they are diagnosing.
 State lives in `/root/finn/state.json`, events in `/root/finn/finn.log`; a quiet tick writes
 nothing. The first run takes a baseline and stays silent, so a cold start does not report every
 device in the building as a new face.
+
+## A speaker, if you want one
+
+Plug a class-compliant USB speaker into the router and he can be heard as well as read. Install
+`kmod-usb-audio` and `alsa-utils`, and set `FINN_VOICE`:
+
+- `beep`, the default and the one worth having: a short two-tone pip when he posts, so you look
+  at your phone. `sounds/finn-blip.wav` in this repo, copy it to `/root/bell/finn.wav`.
+- `speak`, which sends the remark to OpenAI speech synthesis and plays it through the speaker,
+  in a gruff old-sailor voice. Requires `FINN_OPENAI_KEY` even when the words come from
+  Anthropic. Delightful for about a day, then you will switch it to `beep`; ask me how I know.
+- `off`.
+
+Either way it only makes noise between `FINN_VOICE_FROM` and `FINN_VOICE_TO`, 9 to 19 by
+default, and never when no sound card is present.
 
 ## Cost and wear
 

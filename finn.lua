@@ -921,6 +921,70 @@ local function think(prompt)
     return trim(text)
 end
 
+
+----------------------------------------------------------------- speaking out loud
+
+-- If there is a speaker on the USB port he says his piece aloud as well as in Telegram.
+-- Anthropic has no speech synthesis, so this always goes to OpenAI regardless of which
+-- brain wrote the words. Silent and harmless when there is no card, no key, or no need.
+VOICE_STATE = nil   -- set from state each tick, so /voice survives restarts
+
+local function has_speaker()
+    return sh("ls /dev/snd/pcmC*p 2>/dev/null"):match("pcmC") ~= nil
+end
+
+-- FINN_VOICE: "beep" plays a short pip when he posts, "speak" reads the remark aloud,
+-- "off" keeps him to Telegram. The pip is the default: a voice in an office wears thin.
+local function voice_mode()
+    return (VOICE_STATE or env("FINN_VOICE") or "beep"):lower()
+end
+
+local function voice_allowed()
+    if voice_mode() == "off" then return false end
+    if not has_speaker() then return false end
+    local hour = tonumber(os.date("%H"))
+    local from = tonumber(env("FINN_VOICE_FROM") or "9")
+    local to   = tonumber(env("FINN_VOICE_TO")   or "19")
+    return hour >= from and hour < to
+end
+
+local function speak(text)
+    if not voice_allowed() then return end
+    if voice_mode() ~= "speak" then
+        sh("aplay -q /root/bell/finn.wav")   -- just a pip, so you know to look at your phone
+        return
+    end
+    local key = env("FINN_OPENAI_KEY")
+    if not key then return end
+    -- a long remark read aloud in an office stops being funny; he gets one breath
+    local words = utf8_trunc((text:gsub("%s+", " ")), 400)
+    write_file("/tmp/finn-tts.json", json.encode({
+        model = env("FINN_TTS_MODEL") or "gpt-4o-mini-tts",
+        voice = env("FINN_TTS_VOICE") or "ash",
+        response_format = "wav",
+        input = words,
+        instructions = "A gruff old sailor who has been shouting over weather for forty years. " ..
+                       "Weary, unimpressed, unhurried. Low and gravelly, never cheerful, never " ..
+                       "an announcer. Speak whichever language the text is written in.",
+    }), "600")
+    local conf = curl_conf({
+        'silent', 'max-time = 45',
+        'url = "https://api.openai.com/v1/audio/speech"',
+        'header = "Authorization: Bearer ' .. key .. '"',
+        'header = "content-type: application/json"',
+        'data-binary = "@/tmp/finn-tts.json"',
+        'output = "/tmp/finn-tts.wav"',
+    })
+    os.remove("/tmp/finn-tts.wav")
+    sh("curl -K " .. conf)
+    local f = io.open("/tmp/finn-tts.wav", "rb")
+    local size = f and #(f:read(64) or "") or 0
+    if f then f:close() end
+    if size < 40 then log("tts produced nothing playable"); return end
+    sh("aplay -q /tmp/finn-tts.wav")
+end
+
+
 local function render(s)
     local out = {}
     out[#out+1] = string.format("- time %s, %s", os.date("%H:%M"), os.date("%A %d %B"))
@@ -1020,7 +1084,8 @@ local HELP = [[Что я умею.
 /rare    до 2 раз в день
 /normal  до 5 раз в день
 /chatty  до 10 раз в день
-/test    раз в 3 минуты, 2 часа, потом сам вернусь в chatty
+/test    без лимита, раз в минуту, 2 часа, потом сам вернусь в chatty
+/voice   пикать, говорить или молчать: /voice beep | speak | off
 
 Пишешь мне, отвечаю всегда, в любом режиме.]]
 
@@ -1028,6 +1093,20 @@ local function handle_command(st, text)
     local cmd = text:lower():match("^(/%a+)")
     if not cmd then return nil end
     if cmd == "/start" or cmd == "/help" then return HELP end
+    if cmd == "/voice" then
+        local arg2 = text:lower():match("^/voice%s+(%a+)")
+        if arg2 == "beep" or arg2 == "speak" or arg2 == "off" then
+            st.voice = arg2
+            if arg2 == "beep"  then return "Ладно, буду пикать." end
+            if arg2 == "speak" then return "Буду говорить вслух." end
+            return "Молчу, пишу как раньше."
+        end
+        local mode = st.voice or env("FINN_VOICE") or "beep"
+        return string.format("Сейчас: %s. Динамик %s, слышно меня с %s до %s.\n" ..
+            "/voice beep — пикать, /voice speak — говорить вслух, /voice off — молчать.",
+            mode, has_speaker() and "на месте" or "не воткнут",
+            env("FINN_VOICE_FROM") or "9", env("FINN_VOICE_TO") or "19")
+    end
     if cmd == "/test" then
         st.mode, st.test_until = "test", os.time() + TEST_DURATION
         st.test_spoke, st.test_calls = 0, 0
@@ -1079,6 +1158,7 @@ local function main()
         end
     end
 
+    VOICE_STATE = st.voice
     local vol = load_vol()
     local s = sense(vol)
     local anomalies = find_anomalies(st, vol, s)
@@ -1148,6 +1228,7 @@ local function main()
         if text then
             print(text)
             if chat_id then send(chat_id, text) else print("(no chat_id yet, not delivered)") end
+            speak(text)
         end
         save_state(st); save_vol(vol)
         return
@@ -1208,6 +1289,7 @@ local function main()
                 STYLE[lang])
             if text and text ~= "" and not text:upper():match("^NOTHING") then
                 if send(chat_id, text) then
+                    speak(text)
                     local sk = counters(st)
                     st[sk] = (st[sk] or 0) + 1
                     st.last_spoke_at = os.time()
