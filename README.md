@@ -135,6 +135,10 @@ Note: dropbear has no `sftp-server`, so `scp` fails. Pipe through `ssh cat`, as 
 /root/finn/tick.sh say "..." # make it speak on a given occasion
 ```
 
+`facts` is strictly read-only, and that matters more than it looks: an inspection that saved
+what it saw would mark the oddity as already known, and the next real tick would find nothing
+left to say. Diagnostics must not eat the event they are diagnosing.
+
 State lives in `/root/finn/state.json`, events in `/root/finn/finn.log` (a quiet tick
 writes nothing). The first run takes a baseline and stays silent, so a cold start does not
 report every device in the building as a new face.

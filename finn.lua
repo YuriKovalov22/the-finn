@@ -760,7 +760,9 @@ local function main()
         for _, a in ipairs(anomalies) do print("  * " .. a.text) end
         print(string.format("\n[mode %s, spoke %d, calls %d/%d]",
               st.mode, st.spoke_today or 0, st.calls_today or 0, CALL_BUDGET))
-        save_state(st); save_vol(vol)
+        -- Deliberately writes nothing back. Looking at him must not consume what he was
+        -- about to say: an inspection that records what it saw marks the event as already
+        -- known, and the next real tick finds nothing new to talk about.
         return
     end
 
