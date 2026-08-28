@@ -1003,6 +1003,14 @@ local STYLE = {
               "three\"; 9.5 Mbit/s, not \"nine and a half megabit\".",
 }
 
+
+-- Testing must not spend the day's real budget. An afternoon of watching him work would
+-- otherwise leave him mute until midnight, which is exactly what happened the first time.
+local function counters(st)
+    if st.mode == "test" then return "test_spoke", "test_calls" end
+    return "spoke_today", "calls_today"
+end
+
 ----------------------------------------------------------------- bot commands
 
 local HELP = [[Что я умею.
@@ -1022,6 +1030,7 @@ local function handle_command(st, text)
     if cmd == "/start" or cmd == "/help" then return HELP end
     if cmd == "/test" then
         st.mode, st.test_until = "test", os.time() + TEST_DURATION
+        st.test_spoke, st.test_calls = 0, 0
         return string.format("Тестовый режим. Болтаю без лимита, не чаще раза в минуту, до %s. " ..
                              "Потом сам вернусь в chatty.", os.date("%H:%M", st.test_until))
     end
@@ -1040,10 +1049,10 @@ local function handle_command(st, text)
             mode, m.gap,
             (m.max == math.huge) and "без дневного лимита"
               or string.format("до %d в день, к этому часу открыто %d", m.max, allowance_now(m, mode)),
-            st.spoke_today or 0,
+            st[(counters(st))] or 0,
             (env("FINN_MODEL") or MODELS[env("FINN_PROVIDER") or PROVIDER]),
-            st.calls_today or 0, (mode == "test") and TEST_CALL_CAP or CALL_BUDGET,
-            st.last_spoke_at and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил",
+            st[(select(2, counters(st)))] or 0, (mode == "test") and TEST_CALL_CAP or CALL_BUDGET,
+            ((st.last_spoke_at or 0) > 0) and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил",
             st.test_until and ("\nТест кончится в " .. os.date("%H:%M", st.test_until) .. ".") or "")
     end
     return nil
@@ -1059,6 +1068,7 @@ local function main()
     local today = os.date("%Y-%m-%d")
     if st.day ~= today then
         st.day, st.spoke_today, st.calls_today = today, 0, 0
+        st.test_spoke, st.test_calls = 0, 0
     end
     st.mode = st.mode or DEFAULT_MODE
     if st.mode == "test" and st.test_until and os.time() > st.test_until then
@@ -1079,13 +1089,20 @@ local function main()
         log("cold start: baseline taken, nothing counts as odd yet")
     end
 
+    -- the same answer the bot gives, without needing Telegram to ask
+    if MODE_ARG == "status" then
+        print(handle_command(st, "/status"))
+        return
+    end
+
     if MODE_ARG == "facts" then
         print(render(s))
         print("\n[anomalies]")
         if #anomalies == 0 then print("  none") end
         for _, a in ipairs(anomalies) do print("  * " .. a.text) end
+        local sk, ck = counters(st)
         print(string.format("\n[mode %s, spoke %d, calls %d/%d]",
-              st.mode, st.spoke_today or 0, st.calls_today or 0,
+              st.mode, st[sk] or 0, st[ck] or 0,
               (st.mode == "test") and TEST_CALL_CAP or CALL_BUDGET))
         -- Deliberately writes nothing back. Looking at him must not consume what he was
         -- about to say: an inspection that records what it saw marks the event as already
@@ -1109,7 +1126,8 @@ local function main()
                     if canned then
                         send(chat_id, canned)
                     else
-                        st.calls_today = (st.calls_today or 0) + 1
+                        local _, ck = counters(st)
+                        st[ck] = (st[ck] or 0) + 1
                         local reply = think("The person you belong to just messaged you. Their message:\n\n" .. text ..
                             "\n\nWhat this router witnesses right now:\n" .. render(s) ..
                             "\n\nAnswer him in character." ..
@@ -1123,7 +1141,8 @@ local function main()
     end
 
     if MODE_ARG == "say" then
-        st.calls_today = (st.calls_today or 0) + 1
+        local _, ck = counters(st)
+        st[ck] = (st[ck] or 0) + 1
         local text = think((arg[2] or "Say something.") .. "\n\nWhat you witness right now:\n" ..
                            render(s) .. "\n\nWrite in Russian.")
         if text then
@@ -1138,10 +1157,11 @@ local function main()
     local m = MODES[st.mode] or MODES[DEFAULT_MODE]
     local hour = tonumber(os.date("%H"))
     local since = st.last_spoke_at and (os.time() - st.last_spoke_at) / 60 or 1e9
+    local sk, ck = counters(st)
     local allowed = chat_id and #anomalies > 0
         and m.max > 0
-        and (st.spoke_today or 0) < allowance_now(m, st.mode)
-        and (st.calls_today or 0) < ((st.mode == "test") and TEST_CALL_CAP or CALL_BUDGET)
+        and (st[sk] or 0) < allowance_now(m, st.mode)
+        and (st[ck] or 0) < ((st.mode == "test") and TEST_CALL_CAP or CALL_BUDGET)
         and since >= m.gap
         and hour >= QUIET_FROM and hour < QUIET_TO
 
@@ -1171,7 +1191,8 @@ local function main()
             local said = utf8_clean(table.concat(st.recent_subjects or {}, "; "))
             -- he picked up both languages in port and uses them evenly, by coin toss
             local lang = (math.random() < 0.5) and "English" or "Russian"
-            st.calls_today = (st.calls_today or 0) + 1
+            local _, ck = counters(st)
+            st[ck] = (st[ck] or 0) + 1
             local text = think(
                 "Something in the room is off its usual range. This is not a status report and " ..
                 "not an alert: you are a resident with an opinion, deciding whether any of it is " ..
@@ -1187,7 +1208,8 @@ local function main()
                 STYLE[lang])
             if text and text ~= "" and not text:upper():match("^NOTHING") then
                 if send(chat_id, text) then
-                    st.spoke_today = (st.spoke_today or 0) + 1
+                    local sk = counters(st)
+                    st[sk] = (st[sk] or 0) + 1
                     st.last_spoke_at = os.time()
                     st.muted[chosen.key] = os.time()
                     st.theme_last[chosen.theme] = os.time()

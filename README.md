@@ -142,6 +142,10 @@ at no cost:
 | `/chatty` | at most 10 a day, 15 minutes apart |
 | `/test` | no daily ceiling, one a minute, for two hours, then back to `/chatty` by itself |
 
+Test mode spends its own budget. Otherwise an afternoon of watching him work leaves him mute
+for the rest of the day, which is exactly what happened here: two hours of testing burned 22
+remarks against a ceiling of 10, and he went silent the moment the test expired.
+
 The daily allowance opens gradually rather than all at once. Mornings are the richest hours
 for oddities, so a flat cap gets spent before eleven and leaves nothing for whatever happens
 at five; instead it unlocks in proportion to how much of the speaking window has passed, with
@@ -160,6 +164,7 @@ bottom of `finn.lua`.
 /root/finn/tick.sh            # one tick, as cron runs it
 /root/finn/tick.sh facts      # what the box sees right now: sends nothing, records nothing
 /root/finn/tick.sh say "..."  # make him speak on a given occasion
+/root/finn/tick.sh status     # the same answer /status gives in the bot
 ```
 
 `facts` is strictly read-only, and that matters more than it looks: an inspection that saved
