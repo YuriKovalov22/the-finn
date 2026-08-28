@@ -140,6 +140,9 @@ for oddities, so a flat cap gets spent before eleven and leaves nothing for what
 at five; instead it unlocks in proportion to how much of the speaking window has passed, with
 one message always available.
 
+He calls you by whatever you put in `FINN_OWNER_NAME`, and he only ever talks to the one
+Telegram id you configured.
+
 Unprompted remarks come out in Russian or English by coin toss. He answers you in whichever
 language you wrote in. To make him monolingual, edit `STYLE` and the language line near the
 bottom of `finn.lua`.
