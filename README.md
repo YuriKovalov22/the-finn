@@ -12,34 +12,73 @@ It is deliberately not an assistant. It has no tools, no memory beyond a state f
 access to mail or calendars or tickets, and nothing to be helpful with. It has a view of
 one hallway and an opinion about it.
 
-## What it observes
+## How it decides to speak
 
-Everything comes from the router itself, with no cloud collector in the middle:
+There is no list of interesting events. Every minute the box takes a wide reading of
+itself and the room, keeps a rolling history of every reading in RAM, and looks for
+anything that has fallen outside its own recent range. Whatever is unusual *today* is
+what it gets told about, so it is not the same five notifications forever.
 
-| Signal | Source |
+Two kinds of oddity are detected generically:
+
+- **numeric**, when a sensor leaves the band it has held for the last 45 minutes, by more
+  than a per-sensor floor that keeps ordinary wobble out;
+- **membership**, when anything appears in or disappears from a set: a device, a MAC on
+  the building network, an unusual destination port.
+
+Only then is the model asked, and it is asked as a resident, not a monitoring system: pick
+at most one thing, the strangest or most human of them, and if none of it is worth saying,
+reply `NOTHING`. It is expected to stay quiet often. A subject it has raised is muted for
+six hours so it cannot harp on one thing.
+
+## What it can feel
+
+| Sense | Source |
 |---|---|
-| who is on the wifi | `iwinfo <iface> assoclist` |
-| who they are | `/tmp/dhcp.leases` (hostname, so Apple MAC rotation does not break it) |
-| whether a machine is actually in use | per-device flow churn in `/proc/net/nf_conntrack` |
-| WAN health, link flaps | `/proc/uptime`, `dmesg` |
-| whether the tunnel home is alive | `wg show <iface> latest-handshakes` |
+| who is on the office wifi, and how strong their signal is | `iwinfo assoclist` |
+| who they are | `/tmp/dhcp.leases`, by hostname, so Apple MAC rotation does not break it |
+| whether a machine is in use or asleep | per-device flow churn in `/proc/net/nf_conntrack` |
+| how many devices the building has, and which are new | neighbour table on the repeater interface |
+| what the network is talking to, and on what ports | conntrack, with common ports filtered out |
+| link health, latency and loss to the upstream gateway | `dmesg`, `ping` |
+| throughput both ways | `/proc/net/dev` deltas |
+| whether the tunnel home is alive, and who is on its VPN | `wg show` |
+| its own temperature, load, memory, disk, uptime | `/sys`, `/proc` |
+| failed SSH logins and real kernel errors | `logread`, with the wifi driver's constant screaming filtered out |
+| whether you arrived earlier or later than usual | rolling history of first phone appearance |
 
-The activity signal is worth a note. Association is useless as presence: a sleeping Mac
-stays associated all night, and so does a printer. New conntrack flows per minute are a
-much better proxy. A sleeping machine opens none; a machine someone is sitting at opens
-between three and fifty. So "he woke his desktop" is detected as an *edge*: ten quiet
-minutes, then flows again.
+Association is useless as presence, which is worth knowing before you build something like
+this: a sleeping Mac stays associated all night, and so does a printer. Flow churn is the
+honest signal. A sleeping machine opens no new connections; a machine someone is sitting at
+opens between three and fifty a minute.
 
-## What it does with that
+## Talking to it
 
-- **Greets you once a day**, when you actually wake your machine or walk back into range.
-- **Remarks, rarely**, on things it genuinely witnesses: a link flap, a tunnel that has
-  gone quiet, a device that has never been on this network before, an uptime milestone.
-  Capped at three unprompted messages a day, inside waking hours only.
-- **Answers when written to**, in character, from the same facts and nothing else.
+It answers anything you write, always, in any mode. It also takes commands:
+
+| Command | Effect |
+|---|---|
+| `/status` | mode, what it has said today, model calls spent |
+| `/off` | speaks only when spoken to |
+| `/rare` | at most 2 unprompted a day, 3 hours apart |
+| `/normal` | at most 5 a day, an hour apart |
+| `/chatty` | at most 10 a day, 15 minutes apart |
+
+Commands are handled locally and cost nothing.
 
 Everything runs on the router. If the rest of your infrastructure is on fire, this still
 works, which was most of the point.
+
+## Cost and wear
+
+The minute tick is pure local work: no API call unless an anomaly was found, and a hard
+ceiling of 40 model calls a day including the ones that end in `NOTHING`. On a small model
+that is cents a month.
+
+The flash is treated as the scarce resource it is on these boxes. Sensor history lives in
+tmpfs, the persistent state file is a few hundred bytes and is only rewritten when its
+contents actually change, and the log is truncated at 256 KB. Total footprint on the
+overlay is well under a megabyte.
 
 ## Requirements
 
