@@ -24,11 +24,17 @@ local QUIET_FROM, QUIET_TO = 7, 22
 
 -- how talkative he is; switchable from the bot with /off /rare /normal /chatty
 local MODES = {
-    off    = { max = 0,  gap = 0 },
-    rare   = { max = 2,  gap = 180 },
-    normal = { max = 5,  gap = 60 },
-    chatty = { max = 10, gap = 15 },
+    off    = { max = 0,   gap = 0 },
+    rare   = { max = 2,   gap = 180 },
+    normal = { max = 5,   gap = 60 },
+    chatty = { max = 10,  gap = 15 },
+    -- for watching him work: no day-spread, short mute, and it expires by itself so a
+    -- forgotten test session cannot quietly spend a month of budget in an afternoon
+    test   = { max = 200, gap = 3 },
 }
+local TEST_DURATION  = 2 * 3600
+local TEST_MUTE      = 600
+local TEST_CALL_CAP  = 200
 local DEFAULT_MODE = "chatty"
 
 ----------------------------------------------------------------- helpers
@@ -703,8 +709,9 @@ end
 -- filling up. Left alone he would spend the whole day's allowance before eleven and have
 -- nothing left for whatever happens at five. So the allowance opens gradually across the
 -- speaking window, one message minimum so he is never mute at the start of the day.
-local function allowance_now(m)
+local function allowance_now(m, mode)
     if m.max <= 0 then return 0 end
+    if mode == "test" then return m.max end
     local mins  = tonumber(os.date("%H")) * 60 + tonumber(os.date("%M"))
     local start, stop = QUIET_FROM * 60, QUIET_TO * 60
     local frac = (mins - start) / (stop - start)
@@ -721,6 +728,7 @@ local HELP = [[Что я умею.
 /rare    до 2 раз в день
 /normal  до 5 раз в день
 /chatty  до 10 раз в день
+/test    раз в 3 минуты, 2 часа, потом сам вернусь в chatty
 
 Пишешь мне, отвечаю всегда, в любом режиме.]]
 
@@ -728,20 +736,27 @@ local function handle_command(st, text)
     local cmd = text:lower():match("^(/%a+)")
     if not cmd then return nil end
     if cmd == "/start" or cmd == "/help" then return HELP end
+    if cmd == "/test" then
+        st.mode, st.test_until = "test", os.time() + TEST_DURATION
+        return string.format("Тестовый режим. Болтаю раз в три минуты до %s, потом сам вернусь в chatty.",
+                             os.date("%H:%M", st.test_until))
+    end
     if cmd == "/off" or cmd == "/rare" or cmd == "/normal" or cmd == "/chatty" then
-        st.mode = cmd:sub(2)
+        st.mode, st.test_until = cmd:sub(2), nil
         local m = MODES[st.mode]
         if st.mode == "off" then return "Молчу. Пиши, если что." end
         return string.format("Режим %s. До %d раз в день, не чаще чем раз в %d минут.", st.mode, m.max, m.gap)
     end
     if cmd == "/status" then
-        local m = MODES[st.mode or DEFAULT_MODE]
+        local mode = st.mode or DEFAULT_MODE
+        local m = MODES[mode]
         return string.format(
-            "Режим %s, до %d в день. К этому часу открыто %d, сказал %d.\n" ..
-            "Обращений к модели %d из %d. Последний раз: %s.",
-            st.mode or DEFAULT_MODE, m.max, allowance_now(m), st.spoke_today or 0,
-            st.calls_today or 0, CALL_BUDGET,
-            st.last_spoke_at and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил")
+            "Режим %s, пауза %d мин, до %d в день. К этому часу открыто %d, сказал %d.\n" ..
+            "Обращений к модели %d из %d. Последний раз: %s.%s",
+            mode, m.gap, m.max, allowance_now(m, mode), st.spoke_today or 0,
+            st.calls_today or 0, (mode == "test") and TEST_CALL_CAP or CALL_BUDGET,
+            st.last_spoke_at and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил",
+            st.test_until and ("\nТест кончится в " .. os.date("%H:%M", st.test_until) .. ".") or "")
     end
     return nil
 end
@@ -758,6 +773,13 @@ local function main()
         st.day, st.spoke_today, st.calls_today = today, 0, 0
     end
     st.mode = st.mode or DEFAULT_MODE
+    if st.mode == "test" and st.test_until and os.time() > st.test_until then
+        st.mode, st.test_until = DEFAULT_MODE, nil
+        log("test mode expired, back to %s", DEFAULT_MODE)
+        if st.chat_id then
+            send(st.chat_id, "Два часа вышли. Возвращаюсь в chatty, раз в пятнадцать минут.")
+        end
+    end
 
     local vol = load_vol()
     local s = sense(vol)
@@ -828,8 +850,8 @@ local function main()
     local since = st.last_spoke_at and (os.time() - st.last_spoke_at) / 60 or 1e9
     local allowed = chat_id and #anomalies > 0
         and m.max > 0
-        and (st.spoke_today or 0) < allowance_now(m)
-        and (st.calls_today or 0) < CALL_BUDGET
+        and (st.spoke_today or 0) < allowance_now(m, st.mode)
+        and (st.calls_today or 0) < ((st.mode == "test") and TEST_CALL_CAP or CALL_BUDGET)
         and since >= m.gap
         and hour >= QUIET_FROM and hour < QUIET_TO
 
@@ -837,7 +859,8 @@ local function main()
         st.muted = st.muted or {}
         local fresh = {}
         for _, a in ipairs(anomalies) do
-            if (os.time() - (st.muted[a.key] or 0)) > SUBJECT_MUTE then fresh[#fresh + 1] = a end
+            local mute = (st.mode == "test") and TEST_MUTE or SUBJECT_MUTE
+            if (os.time() - (st.muted[a.key] or 0)) > mute then fresh[#fresh + 1] = a end
         end
         if #fresh > 0 then
             local lines = {}
