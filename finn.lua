@@ -355,6 +355,27 @@ end
 
 ----------------------------------------------------------------- what counts as odd
 
+
+-- Every oddity belongs to a theme. Without this the noisiest sensor wins every time and he
+-- turns into a monitor for one thing: ports flap constantly, so three messages in a row came
+-- out about ports. Themes take turns, and the one that has waited longest goes first.
+local THEME = {
+    odd_ports_added = "ports", odd_ports_gone = "ports",
+    office_macs_added = "room", office_macs_gone = "room",
+    office_clients = "room", office_others = "room",
+    building_macs_added = "building", building_macs_gone = "building",
+    building_devices = "building",
+    desk_churn = "people", phone_churn = "people", laptop_churn = "people",
+    desk_rssi = "people", phone_rssi = "people", laptop_rssi = "people", arrival = "people",
+    temp_c = "body", load1 = "body", mem_free_mb = "body", overlay_pct = "body",
+    kernel_errors = "body", uptime_days = "body",
+    gw_latency_ms = "network", gw_loss_pct = "network", wan_rx_kbps = "network",
+    wan_tx_kbps = "network", conn_total = "network", conn_remotes = "network",
+    tunnel_age_s = "network", vpn_peers_up = "network", link_flaps = "network",
+    ssh_failures = "intruder",
+}
+local function theme_of(key) return THEME[key] or "other" end
+
 -- Sensors whose small wobbles mean nothing; below this a change is not worth a word.
 local FLOOR = {
     desk_churn = 5, phone_churn = 5, laptop_churn = 5, gw_latency_ms = 3,
@@ -433,6 +454,16 @@ local function feels(key, direction)
     return nil
 end
 
+
+-- Ports and building neighbours flap by nature: mDNS, Dropbox discovery, phones roaming.
+-- A port that was here an hour ago and came back is not news. Only genuine novelty counts,
+-- and for these two sets a departure is not an event at all.
+local SET_RULES = {
+    odd_ports     = { report_gone = false, novelty_h = 24 },
+    building_macs = { report_gone = false, novelty_h = 6 },
+    office_macs   = { report_gone = true,  novelty_h = 0 },
+}
+
 local function push_hist(store, key, v, cap)
     store.hist = store.hist or {}
     local h = store.hist[key] or {}
@@ -477,20 +508,28 @@ local function find_anomalies(st, vol, s)
 
     -- appearances and disappearances, which no numeric range can catch
     vol.sets = vol.sets or {}
+    st.seen  = st.seen or {}
+    local nowt = os.time()
     for name, list in pairs(s.sets) do
+        local rule = SET_RULES[name] or { report_gone = true, novelty_h = 0 }
         local now_set, was = set_of(list), vol.sets[name]
         if was then
             local was_set = set_of(was)
-            local added, gone = {}, {}
-            for k in pairs(now_set) do if not was_set[k] then added[#added + 1] = k end end
-            for k in pairs(was_set) do if not now_set[k] then gone[#gone + 1] = k end end
-            st.first_seen = st.first_seen or {}
-            if #added > 0 then
-                local never = {}
-                for _, k in ipairs(added) do
-                    if not st.first_seen[name .. "/" .. k] then never[#never + 1] = k end
-                    st.first_seen[name .. "/" .. k] = os.time()
+            local added, never, gone = {}, {}, {}
+            for k in pairs(now_set) do
+                if not was_set[k] then
+                    local last = st.seen[name .. "/" .. k]
+                    if not last then
+                        added[#added + 1] = k; never[#never + 1] = k
+                    elseif (nowt - last) > rule.novelty_h * 3600 then
+                        added[#added + 1] = k
+                    end
                 end
+            end
+            if rule.report_gone then
+                for k in pairs(was_set) do if not now_set[k] then gone[#gone + 1] = k end end
+            end
+            if #added > 0 then
                 local sense_of_it = feels(name .. "_added")
                 out[#out + 1] = { key = name .. "_added", text = string.format(
                     "%s: %s appeared%s.%s", (name:gsub("_", " ")), table.concat(added, ", "),
@@ -504,6 +543,7 @@ local function find_anomalies(st, vol, s)
                     sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
             end
         end
+        for k in pairs(now_set) do st.seen[name .. "/" .. k] = nowt end
         vol.sets[name] = list
     end
 
@@ -856,15 +896,28 @@ local function main()
         and hour >= QUIET_FROM and hour < QUIET_TO
 
     if allowed then
-        st.muted = st.muted or {}
+        st.muted, st.theme_last = st.muted or {}, st.theme_last or {}
+        local mute       = (st.mode == "test") and TEST_MUTE or SUBJECT_MUTE
+        local theme_mute = (st.mode == "test") and 900 or 5400
         local fresh = {}
         for _, a in ipairs(anomalies) do
-            local mute = (st.mode == "test") and TEST_MUTE or SUBJECT_MUTE
-            if (os.time() - (st.muted[a.key] or 0)) > mute then fresh[#fresh + 1] = a end
+            local th = theme_of(a.key)
+            if (os.time() - (st.muted[a.key] or 0)) > mute
+               and (os.time() - (st.theme_last[th] or 0)) > theme_mute then
+                a.theme = th
+                fresh[#fresh + 1] = a
+            end
         end
+        -- whichever theme has been silent longest goes first, so he does not become a
+        -- monitor for the one sensor that happens to twitch most often
+        table.sort(fresh, function(x, y)
+            local lx, ly = st.theme_last[x.theme] or 0, st.theme_last[y.theme] or 0
+            if lx ~= ly then return lx < ly end
+            return math.random() < 0.5
+        end)
         if #fresh > 0 then
-            local lines = {}
-            for _, a in ipairs(fresh) do lines[#lines + 1] = "- " .. a.text end
+            local chosen = fresh[1]
+            local lines = { "- " .. chosen.text }
             local said = utf8_clean(table.concat(st.recent_subjects or {}, "; "))
             -- he picked up both languages in port and uses them evenly, by coin toss
             local lang = (math.random() < 0.5) and "English" or "Russian"
@@ -875,9 +928,8 @@ local function main()
                 "worth a word.\n\nOut of the ordinary right now:\n" .. table.concat(lines, "\n") ..
                 "\n\nThe full picture, for context only:\n" .. render(s) ..
                 (said ~= "" and ("\n\nYou recently said: " .. said .. ". Do not repeat yourself.") or "") ..
-                "\n\nPick at most one thing, whatever is strangest or most physical, and react to it " ..
-                "the way a body reacts, in one or two sentences. Not a report: a flinch, a laugh, a " ..
-                "complaint about your own carcass.\n\nYou are not the filter here; you are allowed to " ..
+                "\n\nReact to that one thing the way a body reacts, in one or two sentences. Not a " ..
+                "report: a flinch, a laugh, a complaint about your own carcass.\n\nYou are not the filter here; you are allowed to " ..
                 "speak only a few times a day anyway, so do not save yourself for something better. " ..
                 "If the thing has any body to it at all, being hot, cold, ticklish, loud, crowded, " ..
                 "sore, or funny, then say it. Reply with exactly NOTHING only when the oddity is " ..
@@ -887,19 +939,21 @@ local function main()
                 if send(chat_id, text) then
                     st.spoke_today = (st.spoke_today or 0) + 1
                     st.last_spoke_at = os.time()
-                    for _, a in ipairs(fresh) do st.muted[a.key] = os.time() end
+                    st.muted[chosen.key] = os.time()
+                    st.theme_last[chosen.theme] = os.time()
                     st.recent_subjects = st.recent_subjects or {}
                     table.insert(st.recent_subjects, 1, utf8_trunc((text:gsub("\n", " ")), 60))
                     while #st.recent_subjects > 6 do table.remove(st.recent_subjects) end
-                    log("spoke (%s): %s", fresh[1].key, utf8_trunc((text:gsub("\n", " ")), 160))
+                    log("spoke (%s/%s): %s", chosen.theme, chosen.key,
+                        utf8_trunc((text:gsub("\n", " ")), 160))
                 end
             elseif text == nil then
                 -- the call failed; that is not a decision, so the subject stays live
-                log("model call failed, %d oddity(ies) left unmuted", #fresh)
+                log("model call failed, %s left unmuted", chosen.key)
             else
                 -- he looked and decided it was boring; that is a legitimate outcome
-                for _, a in ipairs(fresh) do st.muted[a.key] = os.time() end
-                log("looked at %d oddity(ies), said nothing", #fresh)
+                st.muted[chosen.key] = os.time()
+                log("looked at %s, said nothing", chosen.key)
             end
         end
     end

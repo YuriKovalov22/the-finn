@@ -34,6 +34,14 @@ ears, the ports its fingers and toes, the flash its gut. So it reacts first and 
 number as an aside, the way a person says "forty degrees, bloody hell" while already pulling
 their hand back.
 
+Two rules keep it from degenerating into a monitor for whichever sensor twitches most. Every
+oddity belongs to a theme (ports, the room, the building, people, his own body, the network,
+an intruder), and a theme that has just been used goes quiet for an hour and a half, so
+consecutive remarks come from different worlds. Within what is left, the theme that has waited
+longest is the one he is handed. And membership churn is not news by itself: a port or a
+neighbour that was here yesterday and came back does not count, only genuine novelty does, and
+for those two sets a departure is not an event at all.
+
 Only then is the model asked, and it is asked as a resident, not a monitoring system: pick
 one thing, react to it as a body would, and if it is bloodless bookkeeping with no sensation
 in it, reply `NOTHING`. A subject it has raised is muted for six hours so it cannot harp on
