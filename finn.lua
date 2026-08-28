@@ -208,15 +208,29 @@ local function lease_by_host(ls, host)
 end
 
 -- MAC -> signal strength, for everything on our own radios
+local function radios()
+    local list = {}
+    for name in (env("FINN_RADIOS") or "ra0,rax0"):gmatch("[^,%s]+") do list[#list + 1] = name end
+    return list
+end
+
 local function associated()
     local out = {}
-    for _, iface in ipairs({ "ra0", "rax0" }) do
+    for _, iface in ipairs(radios()) do
         for mac, dbm in sh("iwinfo " .. iface .. " assoclist"):gmatch("(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)%s+(%-%d+) dBm") do
             out[mac:lower()] = tonumber(dbm)
         end
     end
     return out
 end
+
+-- Which addresses count as "in here" rather than "out there". Derived from the LAN address
+-- so this works on any router without being told.
+local LAN_PATTERN = (function()
+    local ip = ((io.popen("ip -4 addr show br-lan 2>/dev/null || ip -4 addr show 2>/dev/null"):read("*a") or "")
+                :match("inet (%d+%.%d+%.%d+)%.%d+")) or "192.168.8"
+    return "^" .. ip:gsub("%.", "%%.") .. "%."
+end)()
 
 local COMMON_PORTS = { ["443"]=1, ["80"]=1, ["53"]=1, ["22"]=1, ["123"]=1,
                        ["5228"]=1, ["993"]=1, ["587"]=1, ["465"]=1, ["8443"]=1 }
@@ -235,7 +249,7 @@ local function conntrack()
             local key = src .. ":" .. (sp or "-") .. ">" .. dst .. ":" .. (dp or "-")
             per_ip[src] = per_ip[src] or {}
             per_ip[src][key] = { u = tonumber(b_up) or 0, d = tonumber(b_down) or 0 }
-            if not dst:match("^192%.168%.8%.") then remotes[dst] = true end
+            if not dst:match(LAN_PATTERN) then remotes[dst] = true end
             if dp and not COMMON_PORTS[dp]
                and not dst:match("^10%.") and not dst:match("^192%.168%.") then
                 odd[dp] = (odd[dp] or 0) + 1
@@ -317,13 +331,17 @@ local function sense(vol)
     s.n.office_others  = others
     s.sets.office_macs = keys(assoc)
 
-    -- the building, seen through the repeater's own neighbour table
-    local bldg = {}
-    for lladdr in sh("ip neigh show dev apclix0"):gmatch("lladdr (%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)") do
-        bldg[lladdr:lower()] = true
+    -- The wider network this router hangs off, seen through whichever interface faces it.
+    -- Optional: with no such interface there is simply no world beyond the wall.
+    local upstream = env("FINN_UPSTREAM_IFACE")
+    if upstream and upstream ~= "" then
+        local bldg = {}
+        for lladdr in sh("ip neigh show dev " .. upstream):gmatch("lladdr (%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)") do
+            bldg[lladdr:lower()] = true
+        end
+        s.n.building_devices = size(bldg)
+        s.sets.building_macs = keys(bldg)
     end
-    s.n.building_devices = size(bldg)
-    s.sets.building_macs = keys(bldg)
 
     -- the wire
     local gw = trim(sh("ip route show default | head -1 | sed -n 's/.*via \\([0-9.]*\\).*/\\1/p'"))
@@ -336,7 +354,9 @@ local function sense(vol)
         s.n.gw_loss_pct   = num(png:match("(%d+)%% packet loss")) or 0
     end
 
-    local rx, tx = sh("grep 'eth0:' /proc/net/dev"):match("eth0:%s*(%d+)%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)")
+    local wan = env("FINN_WAN_IFACE") or "eth0"
+    local rx, tx = sh("grep '" .. wan .. ":' /proc/net/dev"):match(
+        wan .. ":%s*(%d+)%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)")
     local now = os.time()
     if rx and vol.prev_bytes then
         local dt = now - (vol.prev_bytes.at or now)
@@ -350,10 +370,17 @@ local function sense(vol)
     s.n.conn_total, s.n.conn_remotes = conn_total, conn_remote
     s.sets.odd_ports = keys(odd_ports)
 
-    local hs = num(sh("wg show wgrev latest-handshakes | awk '{print $2}' | sort -rn | head -1"))
-    s.n.tunnel_age_s = (hs and hs > 0) and (now - hs) or 99999
-    s.n.vpn_peers_up = tonumber(trim(sh(
-        "wg show wgserver latest-handshakes | awk -v n=" .. now .. " '$2>0 && n-$2<300' | wc -l"))) or 0
+    -- Both wireguard interfaces are optional: name them in env if you have them.
+    local tun = env("FINN_TUNNEL_IFACE")
+    if tun and tun ~= "" then
+        local hs = num(sh("wg show " .. tun .. " latest-handshakes | awk '{print $2}' | sort -rn | head -1"))
+        s.n.tunnel_age_s = (hs and hs > 0) and (now - hs) or 99999
+    end
+    local vpn = env("FINN_VPN_IFACE")
+    if vpn and vpn ~= "" then
+        s.n.vpn_peers_up = tonumber(trim(sh(
+            "wg show " .. vpn .. " latest-handshakes | awk -v n=" .. now .. " '$2>0 && n-$2<300' | wc -l"))) or 0
+    end
 
     -- his own body
     s.n.temp_c      = round((num(read_file("/sys/class/thermal/thermal_zone0/temp")) or 0) / 1000, 1)
@@ -380,7 +407,7 @@ local function sense(vol)
     local flaps, latest = 0, vol.last_flap_ts or 0
     for ts, msg in sh("dmesg"):gmatch("%[%s*(%d+%.%d+)%]%s+([^\n]*)") do
         local t = tonumber(ts)
-        if t and msg:match("eth0: Link is Down") then
+        if t and msg:match(wan .. ": Link is Down") then
             if t > (vol.last_flap_ts or 0) then flaps = flaps + 1 end
             if t > latest then latest = t end
         end
@@ -844,8 +871,12 @@ local function render(s)
     out[#out+1] = string.format("- %d connections open to %d distinct hosts%s",
         s.n.conn_total, s.n.conn_remotes,
         #s.sets.odd_ports > 0 and (", unusual ports in use: " .. table.concat(s.sets.odd_ports, ", ")) or "")
-    out[#out+1] = string.format("- tunnel home last spoke %d seconds ago, %d live peers on the router's VPN",
-        s.n.tunnel_age_s, s.n.vpn_peers_up)
+    if s.n.tunnel_age_s then
+        out[#out+1] = string.format("- the tunnel home last spoke %d seconds ago", s.n.tunnel_age_s)
+    end
+    if s.n.vpn_peers_up then
+        out[#out+1] = string.format("- %d live peers on this router's own VPN", s.n.vpn_peers_up)
+    end
     out[#out+1] = string.format("- office wifi: %d devices, %d of them not one of your three",
         s.n.office_clients, s.n.office_others)
     local function dur(mins)
@@ -868,7 +899,10 @@ local function render(s)
             end
         end
     end
-    out[#out+1] = string.format("- building network: %d devices visible through the repeater", s.n.building_devices)
+    if s.n.building_devices then
+        out[#out+1] = string.format("- the wider network beyond this router: %d devices visible",
+            s.n.building_devices)
+    end
     if s.n.ssh_failures > 0 then out[#out+1] = string.format("- %d failed SSH logins in the recent log", s.n.ssh_failures) end
     if s.n.kernel_errors > 0 then out[#out+1] = string.format("- %d kernel errors in the recent log", s.n.kernel_errors) end
     if s.n.link_flaps > 0 then out[#out+1] = string.format("- the WAN link dropped %d time(s) just now", s.n.link_flaps) end
