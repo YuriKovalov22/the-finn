@@ -825,8 +825,8 @@ local function main()
             local lines = {}
             for _, a in ipairs(fresh) do lines[#lines + 1] = "- " .. a.text end
             local said = utf8_clean(table.concat(st.recent_subjects or {}, "; "))
-            -- he picked up both languages in port; roughly one remark in four comes out English
-            local lang = (math.random() < 0.25) and "English" or "Russian"
+            -- he picked up both languages in port and uses them evenly, by coin toss
+            local lang = (math.random() < 0.5) and "English" or "Russian"
             st.calls_today = (st.calls_today or 0) + 1
             local text = think(
                 "Something in the room is off its usual range. This is not a status report and " ..

@@ -65,7 +65,7 @@ opens between three and fifty a minute.
 
 It answers anything you write, always, in any mode. It also takes commands:
 
-Roughly one unprompted remark in four comes out in English rather than Russian; it answers
+Unprompted remarks come out in Russian or English by coin toss, an even split; it answers
 you in whichever language you wrote in.
 
 | Command | Effect |
