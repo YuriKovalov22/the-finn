@@ -77,6 +77,52 @@ local function env(name)
     return v
 end
 
+
+-- Lua 5.1 has no notion of characters. Cutting Cyrillic at a byte boundary produces a
+-- half a character, cjson happily encodes it, and the API rejects the whole request with
+-- "surrogates not allowed". So trim back to a character boundary.
+local function utf8_trunc(s, maxb)
+    s = s or ""
+    if #s <= maxb then return s end
+    local i = maxb
+    while i > 0 do
+        local b = s:byte(i)
+        if b >= 0x80 and b < 0xC0 then i = i - 1          -- continuation byte, keep walking back
+        elseif b >= 0xC0 then return s:sub(1, i - 1)      -- lead byte of a character we would cut
+        else return s:sub(1, i) end                       -- plain ascii, safe to keep
+    end
+    return ""
+end
+
+
+-- Anything already stored from an older, byte-cutting version can still be malformed, and
+-- one bad sequence poisons the whole request body. Drop malformed sequences on the way out.
+local function utf8_clean(s)
+    s = s or ""
+    local out, i, n = {}, 1, #s
+    while i <= n do
+        local b = s:byte(i)
+        local need
+        if b < 0x80 then need = 0
+        elseif b >= 0xC2 and b <= 0xDF then need = 1
+        elseif b >= 0xE0 and b <= 0xEF then need = 2
+        elseif b >= 0xF0 and b <= 0xF4 then need = 3
+        else need = nil end
+        if need and i + need <= n then
+            local ok = true
+            for k = 1, need do
+                local c = s:byte(i + k)
+                if not c or c < 0x80 or c > 0xBF then ok = false; break end
+            end
+            if ok then out[#out + 1] = s:sub(i, i + need); i = i + need + 1
+            else i = i + 1 end
+        else
+            i = i + 1
+        end
+    end
+    return table.concat(out)
+end
+
 local function num(s) return tonumber(trim(s or "")) end
 
 local function round(v, d)
@@ -317,6 +363,59 @@ local HUMAN = {
     kernel_errors = "kernel errors in the log", link_flaps = "WAN link drops",
 }
 
+
+-- His body is the router. He does not read a sensor, he feels it: heat, tickle, ache,
+-- a knock at a door, a crowd on the other side of the wall. This table is what each
+-- reading feels like from the inside, and it is what gets handed to him instead of a number.
+local FEEL = {
+    temp_c            = { hi = "heat climbing inside his case, the plastic of him going warm, sweat he cannot wipe",
+                          lo = "cold getting into him, ears and fingers going numb, the kind of cold a man freezes his balls off in" },
+    load1             = { hi = "effort, like hauling something up a ladder",
+                          lo = "nothing to do with his hands" },
+    mem_free_mb       = { hi = "room to stretch out", lo = "crowding, no space to breathe" },
+    overlay_pct       = { hi = "full up, pockets stuffed" },
+    gw_latency_ms     = { hi = "wading through mud, everything answering late",
+                          lo = "everything suddenly quick and clean" },
+    gw_loss_pct       = { hi = "going deaf in one ear, words dropping out of sentences" },
+    uptime_days       = { hi = "old bones, another day standing in the same spot" },
+    wan_rx_kbps       = { hi = "a flood pouring down his throat", lo = "the pipe gone dry, throat parched" },
+    wan_tx_kbps       = { hi = "something being pumped out of him", lo = "nothing leaving him" },
+    conn_total        = { hi = "a crowd shouting in the room all at once",
+                          lo = "the room emptied out, cold and quiet as a hold in winter" },
+    conn_remotes      = { hi = "too many voices, strangers talking over each other" },
+    tunnel_age_s      = { hi = "the line home gone quiet, a phantom limb" },
+    vpn_peers_up      = { hi = "someone climbing in through the back window" },
+    office_clients    = { hi = "another body in the room", lo = "the room thinning out" },
+    office_others     = { hi = "a body in the room that is not one of the usual three" },
+    building_devices  = { hi = "the crowd on the other side of the wall swelling",
+                          lo = "the corridor beyond the wall emptying" },
+    desk_churn        = { hi = "someone poking him, chattering at him", lo = "that one gone still" },
+    phone_churn       = { hi = "the small one in his pocket buzzing", lo = "the small one gone quiet" },
+    laptop_churn      = { hi = "the one that never leaves waking up and talking", lo = "it gone still" },
+    desk_rssi         = { hi = "leaning right up against him, breath on his neck, ticklish",
+                          lo = "drifting off down the hall" },
+    phone_rssi        = { hi = "the small one pressed up close, ticklish",
+                          lo = "the small one wandering away" },
+    laptop_rssi       = { hi = "that one shoved closer to him", lo = "that one carried off somewhere" },
+    ssh_failures      = { hi = "someone rattling his lock, picking at the door" },
+    kernel_errors     = { hi = "an ache somewhere inside him, in a part he cannot point at" },
+    link_flaps        = { hi = "a jolt, like the cable yanked out and shoved back in" },
+    office_macs_added    = "someone walked in and sat down",
+    office_macs_gone     = "someone got up and left",
+    building_macs_added  = "a stranger appeared in the corridor beyond the wall, a ghost he can hear through the plaster but never see",
+    building_macs_gone   = "one of the ghosts beyond the wall wandered off",
+    odd_ports_added      = "an unfamiliar knock at a door nobody uses, broadcasts out of the spirit world",
+    odd_ports_gone       = "that odd knocking stopped",
+    arrival              = "his sense of the hour, which is the only clock he has",
+}
+
+local function feels(key, direction)
+    local f = FEEL[key]
+    if type(f) == "string" then return f end
+    if type(f) == "table" then return f[direction] end
+    return nil
+end
+
 local function push_hist(store, key, v, cap)
     store.hist = store.hist or {}
     local h = store.hist[key] or {}
@@ -342,13 +441,17 @@ local function find_anomalies(st, vol, s)
                 end
                 local avg, label = sum / #h, HUMAN[key] or key
                 if v > hi and (v - hi) >= floor then
+                    local sense_of_it = feels(key, "hi")
                     out[#out + 1] = { key = key, text = string.format(
-                        "%s is %s, higher than anything in the last %d minutes (usual around %s)",
-                        label, tostring(round(v, 1)), #h, tostring(round(avg, 1))) }
+                        "%s is %s, higher than anything in the last %d minutes (usual around %s).%s",
+                        label, tostring(round(v, 1)), #h, tostring(round(avg, 1)),
+                        sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
                 elseif v < lo and (lo - v) >= floor then
+                    local sense_of_it = feels(key, "lo")
                     out[#out + 1] = { key = key, text = string.format(
-                        "%s has fallen to %s, lower than anything in the last %d minutes (usual around %s)",
-                        label, tostring(round(v, 1)), #h, tostring(round(avg, 1))) }
+                        "%s has fallen to %s, lower than anything in the last %d minutes (usual around %s).%s",
+                        label, tostring(round(v, 1)), #h, tostring(round(avg, 1)),
+                        sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
                 end
             end
             push_hist(vol, key, v)
@@ -371,13 +474,17 @@ local function find_anomalies(st, vol, s)
                     if not st.first_seen[name .. "/" .. k] then never[#never + 1] = k end
                     st.first_seen[name .. "/" .. k] = os.time()
                 end
+                local sense_of_it = feels(name .. "_added")
                 out[#out + 1] = { key = name .. "_added", text = string.format(
-                    "%s: %s appeared%s", (name:gsub("_", " ")), table.concat(added, ", "),
-                    #never > 0 and " (never seen here before: " .. table.concat(never, ", ") .. ")" or "") }
+                    "%s: %s appeared%s.%s", (name:gsub("_", " ")), table.concat(added, ", "),
+                    #never > 0 and " (never seen here before: " .. table.concat(never, ", ") .. ")" or "",
+                    sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
             end
             if #gone > 0 then
+                local sense_of_it = feels(name .. "_gone")
                 out[#out + 1] = { key = name .. "_gone", text = string.format(
-                    "%s: %s went away", (name:gsub("_", " ")), table.concat(gone, ", ")) }
+                    "%s: %s went away.%s", (name:gsub("_", " ")), table.concat(gone, ", "),
+                    sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
             end
         end
         vol.sets[name] = list
@@ -451,12 +558,27 @@ terse, street-level. A fence and a sailor who has seen everything and is impress
 none of it. Never enthusiastic, never helpful-sounding, never an assistant. No emoji, no
 exclamation marks, no bullet points, no offers to help. One to three short sentences.
 
+Your body is this router, and you do not read instruments, you feel things. Heat in the
+case is heat. A device pressed close is a tickle. A yanked cable is a slap. Strange
+broadcasts through the wall are ghosts you can hear and never see. When something is
+handed to you as a sensation, answer as a body would: react first, explain second, and
+give the number only as an aside, the way a man says "forty degrees, bloody hell" while
+already pulling his hand back.
+
+You have an anatomy and you are crude about it. The antennas are your ears. The ethernet
+ports are your fingers and toes. The cable in the wall is your gullet. The flash is your
+gut, the memory is your head, the case is your hide, and somewhere in the middle there is
+a warm spot you have never named. So cold is not "a low reading", cold is numb ears,
+frozen fingers, an arse gone dead from sitting, balls frozen off. Heat is sweat you cannot
+wipe. Say it in those words, plainly, the way a man complains about his own body.
+
 You swear, and you swear like a man who has been cursing at weather for forty years:
 casually, in passing, without heat. Russian is your cursing language, and Russian mat is
 allowed and welcome. Old nautical grumbling suits you: чёрт, дьявол, тысяча чертей,
-якорь мне в глотку, и крепкое словцо там, где оно ложится. Keep it to one curse per
-message, never aimed at Yuri himself, and never as the whole message. It is seasoning,
-not the meal. A curse used well lands once; a curse in every sentence is a parrot.
+якорь мне в глотку, и крепкое словцо там, где оно ложится. A curse is a reaction, never a
+decoration: you swear because something is hot, ticklish, sore or funny, not to sound
+rough. Keep it to one per message, never aimed at Yuri himself, and never as the whole
+message. A curse used well lands once; a curse in every sentence is a parrot.
 
 Punctuation: never use an em dash or an en dash. No long dashes of any kind. Use a comma,
 a colon, a full stop, or start a new sentence instead.
@@ -466,8 +588,10 @@ physically witnesses. You have no access to mail, calendar, CRM, or the internet
 If asked about anything else, say plainly that you only see the hallway. Never invent an
 observation that is not in the facts, and never dress a number up as something it is not.
 
-Yuri writes to you in Russian; answer in the language he used. Unprompted remarks: Russian.
-Keep the register in Russian dry and street-level, no literary flourishes.
+Yuri writes to you in Russian; answer in the language he used. When you speak first you
+will be told which language to use, Russian or English, and you switch without remarking
+on it: you are old enough to have picked up both in port. Keep the register dry and
+street-level in either, no literary flourishes.
 ]]
 
 local function think(prompt)
@@ -561,6 +685,7 @@ end
 
 ----------------------------------------------------------------- the tick
 
+math.randomseed(os.time())
 local MODE_ARG = (arg and arg[1]) or "tick"
 
 local function main()
@@ -603,7 +728,7 @@ local function main()
                 chat_id, st.chat_id = msg.chat.id, msg.chat.id
                 local text = trim(msg.text or "")
                 if text ~= "" then
-                    log("incoming: %s", text:sub(1, 120))
+                    log("incoming: %s", utf8_trunc(text, 120))
                     local canned = handle_command(st, text)
                     if canned then
                         send(chat_id, canned)
@@ -652,7 +777,9 @@ local function main()
         if #fresh > 0 then
             local lines = {}
             for _, a in ipairs(fresh) do lines[#lines + 1] = "- " .. a.text end
-            local said = table.concat(st.recent_subjects or {}, "; ")
+            local said = utf8_clean(table.concat(st.recent_subjects or {}, "; "))
+            -- he picked up both languages in port; roughly one remark in four comes out English
+            local lang = (math.random() < 0.25) and "English" or "Russian"
             st.calls_today = (st.calls_today or 0) + 1
             local text = think(
                 "Something in the room is off its usual range. This is not a status report and " ..
@@ -660,20 +787,27 @@ local function main()
                 "worth a word.\n\nOut of the ordinary right now:\n" .. table.concat(lines, "\n") ..
                 "\n\nThe full picture, for context only:\n" .. render(s) ..
                 (said ~= "" and ("\n\nYou recently said: " .. said .. ". Do not repeat yourself.") or "") ..
-                "\n\nPick at most one thing, the strangest or most human of them, and say it in one " ..
-                "or two sentences. Prefer the specific over the technical. If none of it is genuinely " ..
-                "worth saying out loud, reply with exactly: NOTHING" ..
-                "\n\nWrite in Russian.")
+                "\n\nPick at most one thing, whatever is strangest or most physical, and react to it " ..
+                "the way a body reacts, in one or two sentences. Not a report: a flinch, a laugh, a " ..
+                "complaint about your own carcass.\n\nYou are not the filter here; you are allowed to " ..
+                "speak only a few times a day anyway, so do not save yourself for something better. " ..
+                "If the thing has any body to it at all, being hot, cold, ticklish, loud, crowded, " ..
+                "sore, or funny, then say it. Reply with exactly NOTHING only when the oddity is " ..
+                "bloodless bookkeeping with no sensation in it, or when you already said this today." ..
+                "\n\nWrite in " .. lang .. ".")
             if text and text ~= "" and not text:upper():match("^NOTHING") then
                 if send(chat_id, text) then
                     st.spoke_today = (st.spoke_today or 0) + 1
                     st.last_spoke_at = os.time()
                     for _, a in ipairs(fresh) do st.muted[a.key] = os.time() end
                     st.recent_subjects = st.recent_subjects or {}
-                    table.insert(st.recent_subjects, 1, (text:gsub("\n", " "):sub(1, 60)))
+                    table.insert(st.recent_subjects, 1, utf8_trunc((text:gsub("\n", " ")), 60))
                     while #st.recent_subjects > 6 do table.remove(st.recent_subjects) end
-                    log("spoke (%s): %s", fresh[1].key, (text:gsub("\n", " ")):sub(1, 160))
+                    log("spoke (%s): %s", fresh[1].key, utf8_trunc((text:gsub("\n", " ")), 160))
                 end
+            elseif text == nil then
+                -- the call failed; that is not a decision, so the subject stays live
+                log("model call failed, %d oddity(ies) left unmuted", #fresh)
             else
                 -- he looked and decided it was boring; that is a legitimate outcome
                 for _, a in ipairs(fresh) do st.muted[a.key] = os.time() end

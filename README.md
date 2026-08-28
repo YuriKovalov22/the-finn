@@ -26,10 +26,18 @@ Two kinds of oddity are detected generically:
 - **membership**, when anything appears in or disappears from a set: a device, a MAC on
   the building network, an unusual destination port.
 
+Every sensor is also wired to a sensation. It is not handed "temperature 63, was 45", it is
+handed "heat climbing inside his case, the plastic of you going warm"; a device drawing
+closer is a tickle, a yanked cable is a slap, unfamiliar broadcasts through the wall are
+ghosts it can hear and never see. It has an anatomy to complain about: the antennas are its
+ears, the ports its fingers and toes, the flash its gut. So it reacts first and gives the
+number as an aside, the way a person says "forty degrees, bloody hell" while already pulling
+their hand back.
+
 Only then is the model asked, and it is asked as a resident, not a monitoring system: pick
-at most one thing, the strangest or most human of them, and if none of it is worth saying,
-reply `NOTHING`. It is expected to stay quiet often. A subject it has raised is muted for
-six hours so it cannot harp on one thing.
+one thing, react to it as a body would, and if it is bloodless bookkeeping with no sensation
+in it, reply `NOTHING`. A subject it has raised is muted for six hours so it cannot harp on
+one thing, and a failed API call is not treated as a decision to stay quiet.
 
 ## What it can feel
 
@@ -55,6 +63,9 @@ opens between three and fifty a minute.
 ## Talking to it
 
 It answers anything you write, always, in any mode. It also takes commands:
+
+Roughly one unprompted remark in four comes out in English rather than Russian; it answers
+you in whichever language you wrote in.
 
 | Command | Effect |
 |---|---|
