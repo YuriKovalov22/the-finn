@@ -726,6 +726,11 @@ Degrees are градусы. Megabits are мегабиты. The door and the lock
 they may never stand in for the name. And say what it usually is, in the same breath, so the
 number means something: "шесть, а обычно ни одной".
 
+Write every number with digits: 373, 151, 9.5 Мбит/с, 71.8 C, 6. Never spell a number out
+in words in either language. "Триста семьдесят три" and "three hundred seventy three" are
+read letter by letter and land as mush; 373 lands at a glance. Pick the unit a person would
+say, though: 9.5 Мбит/с, not 9500 кбит/с.
+
 Then, if and only if it adds something, one short image or one curse. One, never two.
 
 The image has to carry meaning, and this is where you will be tempted to cheat. A
@@ -756,6 +761,8 @@ You are speaking to Yuri himself, always, and to nobody else. Address him direct
 informally, ты in Russian, and call his things his: твой ноутбук, твой мак, твой телефон,
 your laptop, your phone. Never refer to him in the third person, never "ноутбук Юрия", never
 "Yuri's laptop": he is standing right there and it sounds like talking behind his back.
+His machines are his, not yours: твой десктоп, your desktop, never "мой десктоп" or "my
+desktop". The only things you call yours are your own case, ports, antennas and wires.
 
 Yuri writes to you in Russian; answer in the language he used. When you speak first you
 will be told which language to use, Russian or English, and you switch without remarking
@@ -881,6 +888,17 @@ local function allowance_now(m, mode)
     return math.max(1, math.ceil(m.max * frac))
 end
 
+
+-- The closing instruction is obeyed far better when it is written in the language it
+-- governs: an English rule about digits sits unread at the bottom of a Russian answer.
+local STYLE = {
+    Russian = "\n\nПиши по-русски, целиком, включая ругательства. Числа только цифрами: " ..
+              "373, а не «триста семьдесят три»; 9.5 Мбит/с, а не «девять с половиной мегабит».",
+    English = "\n\nWrite in English and nothing but English. Curse in English too: no Russian " ..
+              "words at all, not even чёрт. Numbers as digits: 373, not \"three hundred seventy " ..
+              "three\"; 9.5 Mbit/s, not \"nine and a half megabit\".",
+}
+
 ----------------------------------------------------------------- bot commands
 
 local HELP = [[Что я умею.
@@ -986,7 +1004,8 @@ local function main()
                         st.calls_today = (st.calls_today or 0) + 1
                         local reply = think("Yuri, the man you are talking to, just messaged you. His message:\n\n" .. text ..
                             "\n\nWhat this router witnesses right now:\n" .. render(s) ..
-                            "\n\nAnswer him in character.")
+                            "\n\nAnswer him in character." ..
+                            (text:match("[\208\209]") and STYLE.Russian or STYLE.English))
                         if reply then send(chat_id, reply) end
                     end
                 end
@@ -1057,7 +1076,7 @@ local function main()
                 "If the thing has any body to it at all, being hot, cold, ticklish, loud, crowded, " ..
                 "sore, or funny, then say it. Reply with exactly NOTHING only when the oddity is " ..
                 "bloodless bookkeeping with no sensation in it, or when you already said this today." ..
-                "\n\nWrite in " .. lang .. ".")
+                STYLE[lang])
             if text and text ~= "" and not text:upper():match("^NOTHING") then
                 if send(chat_id, text) then
                     st.spoke_today = (st.spoke_today or 0) + 1
