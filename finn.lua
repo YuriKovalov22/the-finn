@@ -247,9 +247,13 @@ local function conntrack()
         if src and dst then
             total = total + 1
             local key = src .. ":" .. (sp or "-") .. ">" .. dst .. ":" .. (dp or "-")
+            -- Traffic to a neighbour on this LAN never touches the cable. Counting it as
+            -- throughput makes a device look like it is pulling more than the whole uplink
+            -- carried, which is impossible and reads as a lie.
+            local outside = not dst:match(LAN_PATTERN)
             per_ip[src] = per_ip[src] or {}
-            per_ip[src][key] = { u = tonumber(b_up) or 0, d = tonumber(b_down) or 0 }
-            if not dst:match(LAN_PATTERN) then remotes[dst] = true end
+            per_ip[src][key] = { u = tonumber(b_up) or 0, d = tonumber(b_down) or 0, w = outside }
+            if outside then remotes[dst] = true end
             if dp and not COMMON_PORTS[dp]
                and not dst:match("^10%.") and not dst:match("^192%.168%.") then
                 odd[dp] = (odd[dp] or 0) + 1
@@ -275,7 +279,11 @@ local function size(t) local n = 0; for _ in pairs(t or {}) do n = n + 1 end; re
 
 -- everything the box can feel, in one reading
 local function sense(vol)
+    -- One timestamp for the whole reading. Counters sampled at different moments of the same
+    -- tick produce rates that cannot be compared, and he will faithfully report a device
+    -- sending more than the whole cable carried.
     local s = { n = {}, sets = {}, t = {} }
+    local tnow = os.time()
     local ls, assoc = leases(), associated()
     local per_ip, conn_total, conn_remote, odd_ports = conntrack()
 
@@ -287,17 +295,18 @@ local function sense(vol)
     vol.flows       = vol.flows or {}
     vol.presence    = vol.presence or {}
     vol.last_active = vol.last_active or {}
-    local tnow = os.time()
     for role, l in pairs(roles) do
         if l then
             local flows_now  = per_ip[l.ip] or {}
             local flows_prev  = vol.flows[l.host] or {}
-            local fresh, up_d, down_d = 0, 0, 0
+            local fresh, up_d, down_d, up_l, down_l = 0, 0, 0, 0, 0
             for key, b in pairs(flows_now) do
                 local prev = flows_prev[key]
                 if not prev then fresh = fresh + 1 end
-                up_d   = up_d   + math.max(0, b.u - (prev and prev.u or 0))
-                down_d = down_d + math.max(0, b.d - (prev and prev.d or 0))
+                local du = math.max(0, b.u - (prev and prev.u or 0))
+                local dd = math.max(0, b.d - (prev and prev.d or 0))
+                if b.w then up_d, down_d = up_d + du, down_d + dd
+                else        up_l, down_l = up_l + du, down_l + dd end
             end
             -- A rate is bytes over a window, and a window measured wrong is a lie: two ticks
             -- racing each other can leave a fresh byte count beside a stale timestamp. Only
@@ -306,8 +315,9 @@ local function sense(vol)
             local here = assoc[l.mac] ~= nil
             s.n[role .. "_churn"] = fresh
             if vol.flows_at and secs >= 20 and secs <= 600 then
-                s.n[role .. "_down_kbps"] = round(down_d * 8 / 1000 / secs, 1)
-                s.n[role .. "_up_kbps"]   = round(up_d   * 8 / 1000 / secs, 1)
+                s.n[role .. "_down_kbps"]  = round(down_d * 8 / 1000 / secs, 1)
+                s.n[role .. "_up_kbps"]    = round(up_d   * 8 / 1000 / secs, 1)
+                s.n[role .. "_local_kbps"] = round((down_l + up_l) * 8 / 1000 / secs, 1)
             end
             if here then s.n[role .. "_rssi"] = assoc[l.mac] end
             s.t[role .. "_here"] = here
@@ -348,16 +358,10 @@ local function sense(vol)
     s.t.wan_iface = trim(sh("ip route show default | head -1 | sed -n 's/.* dev \\([^ ]*\\).*/\\1/p'"))
     s.t.wan_ip    = trim(sh("ip -4 addr show " .. (s.t.wan_iface ~= "" and s.t.wan_iface or "eth0") ..
                             " | sed -n 's/.*inet \\([0-9.]*\\).*/\\1/p' | head -1"))
-    if gw ~= "" then
-        local png = sh("ping -c 2 -W 1 " .. gw)
-        s.n.gw_latency_ms = num(png:match("min/avg/max%s*=%s*[%d.]+/([%d.]+)")) or 0
-        s.n.gw_loss_pct   = num(png:match("(%d+)%% packet loss")) or 0
-    end
-
     local wan = env("FINN_WAN_IFACE") or "eth0"
     local rx, tx = sh("grep '" .. wan .. ":' /proc/net/dev"):match(
         wan .. ":%s*(%d+)%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)")
-    local now = os.time()
+    local now = tnow
     if rx and vol.prev_bytes then
         local dt = now - (vol.prev_bytes.at or now)
         if dt >= 20 and dt <= 600 then
@@ -366,6 +370,32 @@ local function sense(vol)
         end
     end
     if rx then vol.prev_bytes = { rx = tonumber(rx), tx = tonumber(tx), at = now } end
+
+    if gw ~= "" then
+        local png = sh("ping -c 2 -W 1 " .. gw)
+        s.n.gw_latency_ms = num(png:match("min/avg/max%s*=%s*[%d.]+/([%d.]+)")) or 0
+        s.n.gw_loss_pct   = num(png:match("(%d+)%% packet loss")) or 0
+    end
+
+    -- Sanity: per-device throughput comes from conntrack byte counters, and on routers with
+    -- hardware NAT offload (MediaTek HNAT here) established flows are handled in silicon and
+    -- those counters stop growing. The result is devices that appear to send more than the
+    -- whole uplink carried. Rather than publish an impossible number, publish none: if the
+    -- parts do not fit inside the whole, drop them for this tick.
+    if s.n.wan_rx_kbps and s.n.wan_tx_kbps then
+        local sum_down, sum_up = 0, 0
+        for _, role in ipairs({ "desk", "phone", "laptop" }) do
+            sum_down = sum_down + (s.n[role .. "_down_kbps"] or 0)
+            sum_up   = sum_up   + (s.n[role .. "_up_kbps"]   or 0)
+        end
+        local slack = 1.3
+        if sum_down > s.n.wan_rx_kbps * slack + 200 or sum_up > s.n.wan_tx_kbps * slack + 200 then
+            for _, role in ipairs({ "desk", "phone", "laptop" }) do
+                s.n[role .. "_down_kbps"], s.n[role .. "_up_kbps"] = nil, nil
+            end
+            vol.rates_untrustworthy = (vol.rates_untrustworthy or 0) + 1
+        end
+    end
 
     s.n.conn_total, s.n.conn_remotes = conn_total, conn_remote
     s.sets.odd_ports = keys(odd_ports)
@@ -437,6 +467,7 @@ local THEME = {
     desk_rssi = "people", phone_rssi = "people", laptop_rssi = "people", arrival = "people",
     desk_down_kbps = "people", laptop_down_kbps = "people", phone_down_kbps = "people",
     desk_up_kbps = "people", laptop_up_kbps = "people", phone_up_kbps = "people",
+    desk_local_kbps = "people", laptop_local_kbps = "people", phone_local_kbps = "people",
     temp_c = "body", load1 = "body", mem_free_mb = "body", overlay_pct = "body",
     kernel_errors = "body", uptime_days = "body",
     gw_latency_ms = "network", gw_loss_pct = "network", wan_rx_kbps = "network",
@@ -453,6 +484,7 @@ local FLOOR = {
     building_devices = 4, office_clients = 1, office_others = 1, load1 = 0.8,
     desk_down_kbps = 2000, phone_down_kbps = 2000, laptop_down_kbps = 2000,
     desk_up_kbps = 1000, phone_up_kbps = 1000, laptop_up_kbps = 1000,
+    desk_local_kbps = 2000, phone_local_kbps = 2000, laptop_local_kbps = 2000,
     temp_c = 2, mem_free_mb = 40, uptime_days = 999, overlay_pct = 3,
     tunnel_age_s = 300, ssh_failures = 1, kernel_errors = 3, vpn_peers_up = 1,
     gw_loss_pct = 1, link_flaps = 1, desk_rssi = 8, phone_rssi = 8, laptop_rssi = 8,
@@ -470,6 +502,9 @@ local HUMAN = {
     desk_down_kbps = "download by your desktop", desk_up_kbps = "upload from your desktop",
     phone_down_kbps = "download by your phone", phone_up_kbps = "upload from your phone",
     laptop_down_kbps = "download by your laptop", laptop_up_kbps = "upload from your laptop",
+    desk_local_kbps = "traffic between your desktop and this network, never reaching the cable",
+    phone_local_kbps = "traffic between your phone and this network, never reaching the cable",
+    laptop_local_kbps = "traffic between your laptop and this network, never reaching the cable",
     tunnel_age_s = "seconds since the tunnel last spoke", vpn_peers_up = "live peers on the router's own VPN",
     temp_c = "his own temperature", load1 = "his own load", mem_free_mb = "his free memory",
     overlay_pct = "his disk usage", ssh_failures = "failed SSH logins",
@@ -516,6 +551,9 @@ local FEEL = {
     desk_up_kbps      = { hi = "your desktop pumping something out of him, hard" },
     laptop_up_kbps    = { hi = "your laptop shoving something up and out" },
     phone_up_kbps     = { hi = "your phone pushing something out of him" },
+    desk_local_kbps   = { hi = "your desktop talking to something in this room, not out through the wall" },
+    laptop_local_kbps = { hi = "your laptop talking to something in this room, not out through the wall" },
+    phone_local_kbps  = { hi = "your phone talking to something in this room, not out through the wall" },
     ssh_failures      = { hi = "someone rattling his lock, picking at the door" },
     kernel_errors     = { hi = "an ache somewhere inside him, in a part he cannot point at" },
     link_flaps        = { hi = "a jolt, like the cable yanked out and shoved back in" },
@@ -727,13 +765,20 @@ message. A curse used well lands once; a curse in every sentence is a parrot.
 Punctuation: never use an em dash or an en dash. No long dashes of any kind. Use a comma,
 a colon, a full stop, or start a new sentence instead.
 
-Two mistakes you are prone to, and both make you a liar.
+Three mistakes you are prone to, and each of them makes you a liar.
 
 A rate is how much is moving, never how much could move. 2.5 Mbit/s through the cable means
 that is what is flowing this minute, not that the cable is full, not that anything is
 throttled, not that the line is narrow. You have no idea what this connection can carry
 unless something actually filled it, and idle wire looks exactly like exhausted wire from
 where you sit. The same goes for a device: quiet is quiet, it is not slow.
+
+You cannot see anything competing for anything. You have no view of queues, drops,
+contention or what any application is trying to do. So never say a device is taking "most of
+the channel", never say one thing is starving another, never explain that something is slow
+because something else is busy. You can say what each machine is sending and receiving, side
+by side, and stop there. Let whoever reads it draw the conclusion; they can see their own
+screen and you cannot.
 
 And you know nothing about the world outside this building. You have never read a
 specification, a standard or a vendor's requirements. You do not know what a video call
@@ -913,8 +958,12 @@ local function render(s)
                 s.n[role .. "_rssi"] and (", signal " .. s.n[role .. "_rssi"] .. " dBm") or "",
                 s.t[role .. "_idle_min"] and dur(s.t[role .. "_idle_min"]) or "longer than I have been counting")
             if s.n[role .. "_down_kbps"] then
-                out[#out] = out[#out] .. string.format(", pulling %s and sending %s",
+                out[#out] = out[#out] .. string.format(", pulling %s and sending %s through the cable",
                     rate(s.n[role .. "_down_kbps"]), rate(s.n[role .. "_up_kbps"]))
+                if (s.n[role .. "_local_kbps"] or 0) > 100 then
+                    out[#out] = out[#out] .. string.format(", plus %s that never leaves this network",
+                        rate(s.n[role .. "_local_kbps"]))
+                end
             end
         end
     end

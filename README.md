@@ -99,7 +99,7 @@ quiet.
 | who is on your wifi, and how strong their signal is | `iwinfo assoclist` |
 | who they are | `/tmp/dhcp.leases`, by hostname, so MAC rotation does not break it |
 | whether a machine is in use or asleep | per-device flow churn in `/proc/net/nf_conntrack` |
-| how much each device is pulling and sending | conntrack byte counters, per device |
+| how much each device is pulling and sending | conntrack byte counters, when they can be trusted (see below) |
 | how long each machine has been here, and since it last stirred | tracked between ticks |
 | how many devices the upstream network has, and which are new | neighbour table on that interface |
 | what the network talks to, and on what ports | conntrack, common ports filtered out |
@@ -109,6 +109,13 @@ quiet.
 | his own temperature, load, memory, disk, uptime | `/sys`, `/proc` |
 | failed SSH logins and real kernel errors | `logread`, with the wifi driver's constant screaming filtered out |
 | whether you arrived earlier or later than usual | rolling history of first phone appearance |
+
+Per-device throughput deserves a warning. It is read from conntrack byte counters, and on any
+router with hardware NAT offload, which includes this one, established flows are handled in
+silicon and those counters stop growing. A busy video call shows up as a handful of packets.
+Left alone this produces devices that appear to be sending more than the entire uplink carried,
+and an agent will faithfully narrate the impossible number. Each tick therefore checks the parts
+against the whole and publishes nothing rather than something wrong.
 
 Association is useless as presence, which is worth knowing before you build something like
 this: a sleeping Mac stays associated all night, and so does a printer. Flow churn is the
