@@ -30,13 +30,15 @@ local MODES = {
     rare   = { max = 2,   gap = 180 },
     normal = { max = 5,   gap = 60 },
     chatty = { max = 10,  gap = 15 },
-    -- for watching him work: no day-spread, short mute, and it expires by itself so a
-    -- forgotten test session cannot quietly spend a month of budget in an afternoon
-    test   = { max = 200, gap = 3 },
+    -- for watching him work: no daily ceiling, a minute between remarks, short mutes so
+    -- there is material to talk about, and it expires by itself so a forgotten test
+    -- session cannot quietly spend a month of budget in an afternoon
+    test   = { max = math.huge, gap = 1 },
 }
 local TEST_DURATION  = 2 * 3600
-local TEST_MUTE      = 600
-local TEST_CALL_CAP  = 200
+local TEST_MUTE      = 300
+local TEST_THEME_MUTE = 300
+local TEST_CALL_CAP  = 400
 local DEFAULT_MODE = "chatty"
 
 ----------------------------------------------------------------- helpers
@@ -918,8 +920,8 @@ local function handle_command(st, text)
     if cmd == "/start" or cmd == "/help" then return HELP end
     if cmd == "/test" then
         st.mode, st.test_until = "test", os.time() + TEST_DURATION
-        return string.format("Тестовый режим. Болтаю раз в три минуты до %s, потом сам вернусь в chatty.",
-                             os.date("%H:%M", st.test_until))
+        return string.format("Тестовый режим. Болтаю без лимита, не чаще раза в минуту, до %s. " ..
+                             "Потом сам вернусь в chatty.", os.date("%H:%M", st.test_until))
     end
     if cmd == "/off" or cmd == "/rare" or cmd == "/normal" or cmd == "/chatty" then
         st.mode, st.test_until = cmd:sub(2), nil
@@ -931,9 +933,12 @@ local function handle_command(st, text)
         local mode = st.mode or DEFAULT_MODE
         local m = MODES[mode]
         return string.format(
-            "Режим %s, пауза %d мин, до %d в день. К этому часу открыто %d, сказал %d.\n" ..
+            "Режим %s, пауза %d мин, %s. Сказал сегодня %d.\n" ..
             "Думаю на %s. Обращений к модели %d из %d. Последний раз: %s.%s",
-            mode, m.gap, m.max, allowance_now(m, mode), st.spoke_today or 0,
+            mode, m.gap,
+            (m.max == math.huge) and "без дневного лимита"
+              or string.format("до %d в день, к этому часу открыто %d", m.max, allowance_now(m, mode)),
+            st.spoke_today or 0,
             (env("FINN_MODEL") or MODELS[env("FINN_PROVIDER") or PROVIDER]),
             st.calls_today or 0, (mode == "test") and TEST_CALL_CAP or CALL_BUDGET,
             st.last_spoke_at and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил",
@@ -978,7 +983,8 @@ local function main()
         if #anomalies == 0 then print("  none") end
         for _, a in ipairs(anomalies) do print("  * " .. a.text) end
         print(string.format("\n[mode %s, spoke %d, calls %d/%d]",
-              st.mode, st.spoke_today or 0, st.calls_today or 0, CALL_BUDGET))
+              st.mode, st.spoke_today or 0, st.calls_today or 0,
+              (st.mode == "test") and TEST_CALL_CAP or CALL_BUDGET))
         -- Deliberately writes nothing back. Looking at him must not consume what he was
         -- about to say: an inspection that records what it saw marks the event as already
         -- known, and the next real tick finds nothing new to talk about.
@@ -1040,7 +1046,7 @@ local function main()
     if allowed then
         st.muted, st.theme_last = st.muted or {}, st.theme_last or {}
         local mute       = (st.mode == "test") and TEST_MUTE or SUBJECT_MUTE
-        local theme_mute = (st.mode == "test") and 900 or 5400
+        local theme_mute = (st.mode == "test") and TEST_THEME_MUTE or 5400
         local fresh = {}
         for _, a in ipairs(anomalies) do
             local th = theme_of(a.key)

@@ -83,7 +83,7 @@ you in whichever language you wrote in.
 | `/rare` | at most 2 unprompted a day, 3 hours apart |
 | `/normal` | at most 5 a day, an hour apart |
 | `/chatty` | at most 10 a day, 15 minutes apart |
-| `/test` | every 3 minutes for two hours, then back to `/chatty` on its own |
+| `/test` | no daily ceiling, at most one a minute, for two hours, then back to `/chatty` on its own |
 
 The daily allowance opens gradually rather than all at once. Mornings are the richest hour
 for oddities, so a flat cap gets spent before eleven and leaves nothing for whatever happens
