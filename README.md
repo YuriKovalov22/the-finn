@@ -201,7 +201,14 @@ any character you write:
 3. **Never let the character narrate its own plumbing.** Unprompted, a model will happily say
    "I was not given that value", which is true of the prompt and fatal to a thing bolted to a
    wall. It notices or it does not.
-4. **Write the style rule in the language it governs.** An English instruction about writing
+4. **Forbid the two lies a sensor agent tells naturally.** A throughput reading is how much is
+   moving, not how much could move, and a model will happily turn "2.5 Mbit/s flowing" into
+   "the line is narrow as a needle's eye" while a gigabit sits idle. It will also invent
+   outside knowledge it cannot have: mine announced that video calls "need at least 5 to 10
+   Mbit/s each way", which is both wrong and unknowable from inside a router. Say plainly that
+   it has never read a specification and that the only normal it owns is the one it measured
+   in that room.
+5. **Write the style rule in the language it governs.** An English instruction about writing
    numbers as digits sits unread at the bottom of a Russian answer. The same rule in Russian is
    obeyed at once.
 
