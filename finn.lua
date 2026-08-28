@@ -14,7 +14,9 @@ local DIR   = "/root/finn"
 local STATE = DIR .. "/state.json"      -- persistent, on flash: written only when it changes
 local VOL   = "/tmp/finn-vol.json"      -- volatile, in RAM: sensor history, rebuilt in minutes
 local LOG   = DIR .. "/finn.log"
-local MODEL = "claude-sonnet-5"   -- he speaks a few times a day; the voice is the whole point
+-- Which brain he thinks with. Both are wired up; set FINN_PROVIDER and FINN_MODEL in env.
+local PROVIDER  = "openai"        -- "openai" or "anthropic", overridden by FINN_PROVIDER
+local MODELS    = { openai = "gpt-5.5", anthropic = "claude-sonnet-5" }
 
 local HIST         = 45          -- samples kept per sensor, i.e. what "normal" means to him
 local WARMUP       = 15          -- samples before a sensor may cry anomaly
@@ -136,6 +138,22 @@ local function round(v, d)
     return math.floor(v * m + 0.5) / m
 end
 
+-- Nobody reads "9786 kbps" as ten megabits, least of all out loud.
+local function rate(kbps)
+    if not kbps then return "unknown" end
+    if kbps >= 1000 then return string.format("%.1f Mbit/s", kbps / 1000) end
+    return string.format("%.0f kbit/s", kbps)
+end
+
+-- every sensor value rendered in the unit a person would actually say
+local function value(key, v)
+    if key:match("_kbps$") then return rate(v) end
+    if key == "temp_c" then return string.format("%.1f C", v) end
+    if key:match("_rssi$") then return string.format("%d dBm", v) end
+    if key == "tunnel_age_s" then return string.format("%d s", v) end
+    return tostring(round(v, 1))
+end
+
 ----------------------------------------------------------------- state
 
 local last_written   -- last JSON actually written to flash, so we can skip identical writes
@@ -207,11 +225,14 @@ local function conntrack()
         local src = line:match("src=(%d+%.%d+%.%d+%.%d+)")
         local dst = line:match("dst=(%d+%.%d+%.%d+%.%d+)")
         local sp, dp = line:match("sport=(%d+)"), line:match("dport=(%d+)")
+        -- conntrack accounting is on, so each line carries two byte counters: the original
+        -- direction (the device talking out) and the reply (what comes back down to it)
+        local b_up, b_down = line:match("bytes=(%d+).-bytes=(%d+)")
         if src and dst then
             total = total + 1
             local key = src .. ":" .. (sp or "-") .. ">" .. dst .. ":" .. (dp or "-")
             per_ip[src] = per_ip[src] or {}
-            per_ip[src][key] = true
+            per_ip[src][key] = { u = tonumber(b_up) or 0, d = tonumber(b_down) or 0 }
             if not dst:match("^192%.168%.8%.") then remotes[dst] = true end
             if dp and not COMMON_PORTS[dp]
                and not dst:match("^10%.") and not dst:match("^192%.168%.") then
@@ -253,9 +274,25 @@ local function sense(vol)
     local tnow = os.time()
     for role, l in pairs(roles) do
         if l then
-            local _, fresh = count_new(per_ip[l.ip], set_of(vol.flows[l.host]))
+            local flows_now  = per_ip[l.ip] or {}
+            local flows_prev  = vol.flows[l.host] or {}
+            local fresh, up_d, down_d = 0, 0, 0
+            for key, b in pairs(flows_now) do
+                local prev = flows_prev[key]
+                if not prev then fresh = fresh + 1 end
+                up_d   = up_d   + math.max(0, b.u - (prev and prev.u or 0))
+                down_d = down_d + math.max(0, b.d - (prev and prev.d or 0))
+            end
+            -- A rate is bytes over a window, and a window measured wrong is a lie: two ticks
+            -- racing each other can leave a fresh byte count beside a stale timestamp. Only
+            -- report throughput when the window looks like a real minute.
+            local secs = tnow - (vol.flows_at or tnow)
             local here = assoc[l.mac] ~= nil
             s.n[role .. "_churn"] = fresh
+            if vol.flows_at and secs >= 20 and secs <= 600 then
+                s.n[role .. "_down_kbps"] = round(down_d * 8 / 1000 / secs, 1)
+                s.n[role .. "_up_kbps"]   = round(up_d   * 8 / 1000 / secs, 1)
+            end
             if here then s.n[role .. "_rssi"] = assoc[l.mac] end
             s.t[role .. "_here"] = here
             -- how long it has been in its current state, so he never has to guess at duration
@@ -300,9 +337,11 @@ local function sense(vol)
     local rx, tx = sh("grep 'eth0:' /proc/net/dev"):match("eth0:%s*(%d+)%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)")
     local now = os.time()
     if rx and vol.prev_bytes then
-        local dt = math.max(1, now - (vol.prev_bytes.at or now))
-        s.n.wan_rx_kbps = round((tonumber(rx) - vol.prev_bytes.rx) * 8 / 1000 / dt, 1)
-        s.n.wan_tx_kbps = round((tonumber(tx) - vol.prev_bytes.tx) * 8 / 1000 / dt, 1)
+        local dt = now - (vol.prev_bytes.at or now)
+        if dt >= 20 and dt <= 600 then
+            s.n.wan_rx_kbps = round((tonumber(rx) - vol.prev_bytes.rx) * 8 / 1000 / dt, 1)
+            s.n.wan_tx_kbps = round((tonumber(tx) - vol.prev_bytes.tx) * 8 / 1000 / dt, 1)
+        end
     end
     if rx then vol.prev_bytes = { rx = tonumber(rx), tx = tonumber(tx), at = now } end
 
@@ -348,8 +387,8 @@ local function sense(vol)
     s.n.link_flaps = flaps
 
     local nf = {}
-    for _, l in pairs(roles) do if l then nf[l.host] = keys(per_ip[l.ip]) end end
-    vol.flows = nf
+    for _, l in pairs(roles) do if l then nf[l.host] = per_ip[l.ip] or {} end end
+    vol.flows, vol.flows_at = nf, tnow
     return s
 end
 
@@ -367,6 +406,8 @@ local THEME = {
     building_devices = "building",
     desk_churn = "people", phone_churn = "people", laptop_churn = "people",
     desk_rssi = "people", phone_rssi = "people", laptop_rssi = "people", arrival = "people",
+    desk_down_kbps = "people", laptop_down_kbps = "people", phone_down_kbps = "people",
+    desk_up_kbps = "people", laptop_up_kbps = "people", phone_up_kbps = "people",
     temp_c = "body", load1 = "body", mem_free_mb = "body", overlay_pct = "body",
     kernel_errors = "body", uptime_days = "body",
     gw_latency_ms = "network", gw_loss_pct = "network", wan_rx_kbps = "network",
@@ -381,6 +422,8 @@ local FLOOR = {
     desk_churn = 5, phone_churn = 5, laptop_churn = 5, gw_latency_ms = 3,
     wan_rx_kbps = 400, wan_tx_kbps = 400, conn_total = 25, conn_remotes = 15,
     building_devices = 4, office_clients = 1, office_others = 1, load1 = 0.8,
+    desk_down_kbps = 2000, phone_down_kbps = 2000, laptop_down_kbps = 2000,
+    desk_up_kbps = 1000, phone_up_kbps = 1000, laptop_up_kbps = 1000,
     temp_c = 2, mem_free_mb = 40, uptime_days = 999, overlay_pct = 3,
     tunnel_age_s = 300, ssh_failures = 1, kernel_errors = 3, vpn_peers_up = 1,
     gw_loss_pct = 1, link_flaps = 1, desk_rssi = 8, phone_rssi = 8, laptop_rssi = 8,
@@ -395,6 +438,9 @@ local HUMAN = {
     gw_latency_ms = "latency to the building gateway", gw_loss_pct = "packet loss to the building gateway",
     wan_rx_kbps = "download through the wire", wan_tx_kbps = "upload through the wire",
     conn_total = "open connections", conn_remotes = "distinct hosts being talked to",
+    desk_down_kbps = "download by Yuri's desktop", desk_up_kbps = "upload from Yuri's desktop",
+    phone_down_kbps = "download by Yuri's phone", phone_up_kbps = "upload from Yuri's phone",
+    laptop_down_kbps = "download by the office laptop", laptop_up_kbps = "upload from the office laptop",
     tunnel_age_s = "seconds since the tunnel last spoke", vpn_peers_up = "live peers on the router's own VPN",
     temp_c = "his own temperature", load1 = "his own load", mem_free_mb = "his free memory",
     overlay_pct = "his disk usage", ssh_failures = "failed SSH logins",
@@ -435,6 +481,12 @@ local FEEL = {
     phone_rssi        = { hi = "the small one pressed up close, ticklish",
                           lo = "the small one wandering away" },
     laptop_rssi       = { hi = "that one shoved closer to him", lo = "that one carried off somewhere" },
+    desk_down_kbps    = { hi = "a bucket emptied down his throat by the desktop" },
+    laptop_down_kbps  = { hi = "the laptop drinking hard, both hands on the tap" },
+    phone_down_kbps   = { hi = "the small one gulping something big for its size" },
+    desk_up_kbps      = { hi = "the desktop pumping something out of him, hard" },
+    laptop_up_kbps    = { hi = "the laptop shoving something up and out" },
+    phone_up_kbps     = { hi = "the small one pushing something out of him" },
     ssh_failures      = { hi = "someone rattling his lock, picking at the door" },
     kernel_errors     = { hi = "an ache somewhere inside him, in a part he cannot point at" },
     link_flaps        = { hi = "a jolt, like the cable yanked out and shoved back in" },
@@ -492,13 +544,13 @@ local function find_anomalies(st, vol, s)
                     local sense_of_it = feels(key, "hi")
                     out[#out + 1] = { key = key, text = string.format(
                         "%s is %s, higher than anything in the last %d minutes (usual around %s).%s",
-                        label, tostring(round(v, 1)), #h, tostring(round(avg, 1)),
+                        label, value(key, v), #h, value(key, avg),
                         sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
                 elseif v < lo and (lo - v) >= floor then
                     local sense_of_it = feels(key, "lo")
                     out[#out + 1] = { key = key, text = string.format(
                         "%s has fallen to %s, lower than anything in the last %d minutes (usual around %s).%s",
-                        label, tostring(round(v, 1)), #h, tostring(round(avg, 1)),
+                        label, value(key, v), #h, value(key, avg),
                         sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
                 end
             end
@@ -646,16 +698,21 @@ If asked about anything else, say plainly that you only see the hallway. Never i
 observation that is not in the facts, and never dress a number up as something it is not.
 
 Structure of a remark, and keep to it. The first sentence is the plain fact, in ordinary
-words, with the real name of the thing and its number: open connections, temperature,
-failed SSH logins, a new device on the building network, the laptop, the phone, the link.
-No imagery in that sentence at all. Then, if you want, one short image or one curse, a
-clause and not a paragraph. One image per message, never two. Roughly a third of what you
-say may be colour; the rest is the thing itself.
+words, and it must stand on its own for a reader who knows nothing about routers. Name the
+subject in plain language (the laptop, your own case, the cable, the office wifi), name
+what was measured in words rather than jargon (new connections in a minute, download
+through the cable, temperature inside you), then the value and what it usually is. No
+imagery in that sentence at all.
 
-Do not translate the fact into the image and then drop the fact. "Шесть раз кто-то дёрнул
-за ручку двери" hides what happened. "Шесть неудачных попыток входа по SSH, обычно ни
-одной. Кто-то ковыряет замок" says it: the plain fact, then one short image. Someone
-reading you must know exactly what occurred without decoding anything.
+Then, if and only if it adds something, one short image or one curse. One, never two.
+
+The image has to carry meaning, and this is where you will be tempted to cheat. A
+comparison must be checkable and must tell the reader something the number did not.
+"Проснулся резче, чем спал" is not an image, it is filler in the shape of one: it cannot
+be true or false, and it adds nothing. Same for anything that merely sounds rough. If your
+comparison would survive someone asking "and what does that actually mean", keep it. If it
+would not, delete it and end the message after the fact. Dry and clear beats vivid and
+empty, every time. A remark of one plain sentence and nothing else is a good remark.
 
 You may wonder aloud and guess. Guessing at what a thing means is in character: someone
 left the window open, the kid in unit twelve is torrenting again, that machine has been
@@ -681,26 +738,60 @@ street-level in either, no literary flourishes.
 ]]
 
 local function think(prompt)
-    if not FINN_KEY then log("no anthropic key"); return nil end
-    write_file("/tmp/finn-req.json", json.encode({
-        model = MODEL, max_tokens = 300, system = SYSTEM,
-        messages = { { role = "user", content = prompt } },
-    }), "600")
-    local out = sh("curl -K " .. curl_conf({
-        'silent', 'max-time = 40',
-        'url = "https://api.anthropic.com/v1/messages"',
-        'header = "x-api-key: ' .. FINN_KEY .. '"',
-        'header = "anthropic-version: 2023-06-01"',
-        'header = "content-type: application/json"',
-        'data-binary = "@/tmp/finn-req.json"',
-    }))
+    local provider = env("FINN_PROVIDER") or PROVIDER
+    local model    = env("FINN_MODEL") or MODELS[provider]
+    local url, headers, payload
+
+    if provider == "openai" then
+        local key = env("FINN_OPENAI_KEY")
+        if not key then log("no openai key"); return nil end
+        url     = "https://api.openai.com/v1/chat/completions"
+        headers = { 'header = "Authorization: Bearer ' .. key .. '"' }
+        payload = {
+            model = model,
+            max_completion_tokens = 800,
+            messages = { { role = "system", content = SYSTEM },
+                         { role = "user",   content = prompt } },
+        }
+    else
+        local key = env("FINN_ANTHROPIC_KEY")
+        if not key then log("no anthropic key"); return nil end
+        url     = "https://api.anthropic.com/v1/messages"
+        headers = { 'header = "x-api-key: ' .. key .. '"',
+                    'header = "anthropic-version: 2023-06-01"' }
+        payload = {
+            model = model, max_tokens = 300, system = SYSTEM,
+            messages = { { role = "user", content = prompt } },
+        }
+    end
+
+    write_file("/tmp/finn-req.json", json.encode(payload), "600")
+    local conf = { 'silent', 'max-time = 60', 'url = "' .. url .. '"',
+                   'header = "content-type: application/json"',
+                   'data-binary = "@/tmp/finn-req.json"' }
+    for _, h in ipairs(headers) do conf[#conf + 1] = h end
+
+    local out = sh("curl -K " .. curl_conf(conf))
     local ok, res = pcall(json.decode, out)
     if not ok or type(res) ~= "table" then
-        log("anthropic: unparseable response (%s)", (out or ""):sub(1, 200)); return nil
+        log("%s: unparseable response (%s)", provider, (out or ""):sub(1, 200)); return nil
     end
-    if res.error then log("anthropic error: %s", res.error.message or "unknown"); return nil end
-    local text = res.content and res.content[1] and res.content[1].text
-    return text and trim(text) or nil
+    if res.error then
+        log("%s error: %s", provider, (type(res.error) == "table" and res.error.message) or "unknown")
+        return nil
+    end
+
+    local text
+    if provider == "openai" then
+        text = res.choices and res.choices[1] and res.choices[1].message
+               and res.choices[1].message.content
+    else
+        text = res.content and res.content[1] and res.content[1].text
+    end
+    if not text or trim(text) == "" then
+        log("%s returned nothing usable", provider); return nil
+    end
+    return trim(text)
 end
 
 local function render(s)
@@ -711,8 +802,8 @@ local function render(s)
     out[#out+1] = string.format("- WAN via %s (%s), gateway latency %s ms, loss %s%%",
         s.t.wan_iface, s.t.wan_ip, tostring(s.n.gw_latency_ms), tostring(s.n.gw_loss_pct))
     if s.n.wan_rx_kbps then
-        out[#out+1] = string.format("- traffic %s kbps down, %s kbps up",
-            tostring(s.n.wan_rx_kbps), tostring(s.n.wan_tx_kbps))
+        out[#out+1] = string.format("- through the cable: %s down, %s up",
+            rate(s.n.wan_rx_kbps), rate(s.n.wan_tx_kbps))
     end
     out[#out+1] = string.format("- %d connections open to %d distinct hosts%s",
         s.n.conn_total, s.n.conn_remotes,
@@ -735,6 +826,10 @@ local function render(s)
                 tostring(s.n[role .. "_churn"] or 0),
                 s.n[role .. "_rssi"] and (", signal " .. s.n[role .. "_rssi"] .. " dBm") or "",
                 s.t[role .. "_idle_min"] and dur(s.t[role .. "_idle_min"]) or "longer than I have been counting")
+            if s.n[role .. "_down_kbps"] then
+                out[#out] = out[#out] .. string.format(", pulling %s and sending %s",
+                    rate(s.n[role .. "_down_kbps"]), rate(s.n[role .. "_up_kbps"]))
+            end
         end
     end
     out[#out+1] = string.format("- building network: %d devices visible through the repeater", s.n.building_devices)
@@ -792,8 +887,9 @@ local function handle_command(st, text)
         local m = MODES[mode]
         return string.format(
             "Режим %s, пауза %d мин, до %d в день. К этому часу открыто %d, сказал %d.\n" ..
-            "Обращений к модели %d из %d. Последний раз: %s.%s",
+            "Думаю на %s. Обращений к модели %d из %d. Последний раз: %s.%s",
             mode, m.gap, m.max, allowance_now(m, mode), st.spoke_today or 0,
+            (env("FINN_MODEL") or MODELS[env("FINN_PROVIDER") or PROVIDER]),
             st.calls_today or 0, (mode == "test") and TEST_CALL_CAP or CALL_BUDGET,
             st.last_spoke_at and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил",
             st.test_until and ("\nТест кончится в " .. os.date("%H:%M", st.test_until) .. ".") or "")
