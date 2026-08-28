@@ -53,6 +53,7 @@ one thing, and a failed API call is not treated as a decision to stay quiet.
 | whether the tunnel home is alive, and who is on its VPN | `wg show` |
 | its own temperature, load, memory, disk, uptime | `/sys`, `/proc` |
 | failed SSH logins and real kernel errors | `logread`, with the wifi driver's constant screaming filtered out |
+| how long each machine has been on or off the wifi, and how long since it last did anything | tracked between ticks |
 | whether you arrived earlier or later than usual | rolling history of first phone appearance |
 
 Association is useless as presence, which is worth knowing before you build something like
@@ -90,6 +91,11 @@ The flash is treated as the scarce resource it is on these boxes. Sensor history
 tmpfs, the persistent state file is a few hundred bytes and is only rewritten when its
 contents actually change, and the log is truncated at 256 KB. Total footprint on the
 overlay is well under a megabyte.
+
+A note on durations, learned the hard way. Give a model a snapshot with no sense of time and
+it will invent one: ours produced "nobody has been here for about two hours" from facts that
+said nothing of the kind. Any fact you would not want fabricated has to be measured and
+handed over explicitly, and the prompt has to forbid reaching for the rest.
 
 ## Requirements
 

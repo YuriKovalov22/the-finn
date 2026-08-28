@@ -14,7 +14,7 @@ local DIR   = "/root/finn"
 local STATE = DIR .. "/state.json"      -- persistent, on flash: written only when it changes
 local VOL   = "/tmp/finn-vol.json"      -- volatile, in RAM: sensor history, rebuilt in minutes
 local LOG   = DIR .. "/finn.log"
-local MODEL = "claude-haiku-4-5-20251001"
+local MODEL = "claude-sonnet-5"   -- he speaks a few times a day; the voice is the whole point
 
 local HIST         = 45          -- samples kept per sensor, i.e. what "normal" means to him
 local WARMUP       = 15          -- samples before a sensor may cry anomaly
@@ -241,13 +241,24 @@ local function sense(vol)
         phone  = lease_by_host(ls, env("FINN_PHONE_HOST")  or "iPhone"),
         laptop = lease_by_host(ls, env("FINN_LAPTOP_HOST") or "Mac"),
     }
-    vol.flows = vol.flows or {}
+    vol.flows       = vol.flows or {}
+    vol.presence    = vol.presence or {}
+    vol.last_active = vol.last_active or {}
+    local tnow = os.time()
     for role, l in pairs(roles) do
         if l then
             local _, fresh = count_new(per_ip[l.ip], set_of(vol.flows[l.host]))
+            local here = assoc[l.mac] ~= nil
             s.n[role .. "_churn"] = fresh
-            if assoc[l.mac] then s.n[role .. "_rssi"] = assoc[l.mac] end
-            s.t[role .. "_here"] = assoc[l.mac] ~= nil
+            if here then s.n[role .. "_rssi"] = assoc[l.mac] end
+            s.t[role .. "_here"] = here
+            -- how long it has been in its current state, so he never has to guess at duration
+            local p = vol.presence[role]
+            if not p or p.here ~= here then p = { here = here, since = tnow }; vol.presence[role] = p end
+            s.t[role .. "_for_min"] = math.floor((tnow - p.since) / 60)
+            if fresh >= 3 then vol.last_active[role] = tnow end
+            s.t[role .. "_idle_min"] = vol.last_active[role]
+                and math.floor((tnow - vol.last_active[role]) / 60) or nil
         end
     end
 
@@ -588,6 +599,14 @@ physically witnesses. You have no access to mail, calendar, CRM, or the internet
 If asked about anything else, say plainly that you only see the hallway. Never invent an
 observation that is not in the facts, and never dress a number up as something it is not.
 
+Durations especially. Every "for two hours", "since morning", "all week" must come from a
+fact in front of you. The facts tell you how long each machine has been on or off the wifi
+and how long since it last did anything; use those numbers and no others. If you were not
+given a duration, do not reach for one, and do not imply how long something has been true.
+
+Write clean, natural Russian. A sentence that does not parse is worse than no sentence.
+If a thought will not come out cleanly, cut it and say the simpler thing.
+
 Yuri writes to you in Russian; answer in the language he used. When you speak first you
 will be told which language to use, Russian or English, and you switch without remarking
 on it: you are old enough to have picked up both in port. Keep the register dry and
@@ -635,13 +654,20 @@ local function render(s)
         s.n.tunnel_age_s, s.n.vpn_peers_up)
     out[#out+1] = string.format("- office wifi: %d devices, %d of them not one of Yuri's three",
         s.n.office_clients, s.n.office_others)
+    local function dur(mins)
+        if not mins then return "unknown" end
+        if mins < 60 then return mins .. " min" end
+        return string.format("%dh %02dm", math.floor(mins / 60), mins % 60)
+    end
     for _, role in ipairs({ "desk", "phone", "laptop" }) do
         if s.t[role .. "_here"] ~= nil then
-            out[#out+1] = string.format("- Yuri's %s: %s, %s new flows this minute%s",
+            out[#out+1] = string.format("- Yuri's %s: %s for %s, %s new flows this minute%s, last did anything %s ago",
                 role == "desk" and "desktop" or role,
-                s.t[role .. "_here"] and "on the wifi" or "not associated",
+                s.t[role .. "_here"] and "on the wifi" or "off the wifi",
+                dur(s.t[role .. "_for_min"]),
                 tostring(s.n[role .. "_churn"] or 0),
-                s.n[role .. "_rssi"] and (", signal " .. s.n[role .. "_rssi"] .. " dBm") or "")
+                s.n[role .. "_rssi"] and (", signal " .. s.n[role .. "_rssi"] .. " dBm") or "",
+                s.t[role .. "_idle_min"] and dur(s.t[role .. "_idle_min"]) or "longer than I have been counting")
         end
     end
     out[#out+1] = string.format("- building network: %d devices visible through the repeater", s.n.building_devices)
