@@ -278,11 +278,18 @@ local function set_of(list) local o = {}; for _, k in ipairs(list or {}) do o[k]
 local function size(t) local n = 0; for _ in pairs(t or {}) do n = n + 1 end; return n end
 
 -- everything the box can feel, in one reading
+local function human_dur(mins)
+    if not mins then return "a while" end
+    if mins < 60 then return mins .. " minutes" end
+    if mins < 60 * 24 then return string.format("%dh %02dm", math.floor(mins / 60), mins % 60) end
+    return string.format("%.1f days", mins / 1440)
+end
+
 local function sense(vol)
     -- One timestamp for the whole reading. Counters sampled at different moments of the same
     -- tick produce rates that cannot be compared, and he will faithfully report a device
     -- sending more than the whole cable carried.
-    local s = { n = {}, sets = {}, t = {} }
+    local s = { n = {}, sets = {}, t = {}, events = {} }
     local tnow = os.time()
     local ls, assoc = leases(), associated()
     local per_ip, conn_total, conn_remote, odd_ports = conntrack()
@@ -323,7 +330,23 @@ local function sense(vol)
             s.t[role .. "_here"] = here
             -- how long it has been in its current state, so he never has to guess at duration
             local p = vol.presence[role]
-            if not p or p.here ~= here then p = { here = here, since = tnow }; vol.presence[role] = p end
+            if not p or p.here ~= here then
+                -- a machine arriving or leaving is an event in itself, and it reads nothing
+                -- like a counter moving, which is the whole point of keeping it separate
+                local was_for = p and math.floor((tnow - p.since) / 60) or nil
+                if p then
+                    local name = "your " .. (role == "desk" and "desktop" or role)
+                    s.events[#s.events + 1] = {
+                        key = "presence_" .. role,
+                        shape = here and "arrival" or "departure",
+                        text = here
+                            and string.format("%s is back on the wifi, after %s away.", name, human_dur(was_for))
+                            or  string.format("%s has dropped off the wifi, after %s here.", name, human_dur(was_for)),
+                    }
+                end
+                p = { here = here, since = tnow }
+                vol.presence[role] = p
+            end
             s.t[role .. "_for_min"] = math.floor((tnow - p.since) / 60)
             if fresh >= 3 then vol.last_active[role] = tnow end
             s.t[role .. "_idle_min"] = vol.last_active[role]
@@ -376,6 +399,22 @@ local function sense(vol)
         end
         s.n.building_devices = size(bldg)
         s.sets.building_macs = keys(bldg)
+    end
+
+    -- someone at the desk at an hour when the office should be empty
+    local hour, wday = tonumber(os.date("%H")), tonumber(os.date("%w"))
+    local odd_hour = hour < 7 or hour >= 21
+    local weekend  = (wday == 0 or wday == 6)
+    if (s.n.desk_churn or 0) >= 3 and (odd_hour or weekend) then
+        local today = os.date("%Y-%m-%d")
+        if vol.odd_presence_day ~= today then
+            vol.odd_presence_day = today
+            s.events[#s.events + 1] = {
+                key = "odd_hours", shape = "rhythm",
+                text = string.format("Someone is working at the desk at %s on a %s, which is not " ..
+                    "when this room is usually in use.", os.date("%H:%M"), os.date("%A")),
+            }
+        end
     end
 
     -- the wire
@@ -459,6 +498,15 @@ local function sense(vol)
     end
     s.n.kernel_errors = kerr
 
+    local up_days = math.floor(((num((read_file("/proc/uptime") or ""):match("^(%S+)")) or 0)) / 86400)
+    if up_days >= 7 and up_days % 7 == 0 and vol.milestone_days ~= up_days then
+        vol.milestone_days = up_days
+        s.events[#s.events + 1] = {
+            key = "milestone", shape = "rhythm",
+            text = string.format("He has now been standing here %d days without a reboot.", up_days),
+        }
+    end
+
     local flaps, latest = 0, vol.last_flap_ts or 0
     for ts, msg in sh("dmesg"):gmatch("%[%s*(%d+%.%d+)%]%s+([^\n]*)") do
         local t = tonumber(ts)
@@ -504,6 +552,39 @@ local function theme_of(key) return THEME[key] or "other" end
 
 -- Theme keeps him off one subject; shape keeps him off one sentence. Six remarks in a row
 -- reading "X is N now, usually M" are varied by theme and identical to read.
+
+-- Themes were too fine to stop the real repetition. Connections, throughput and per-device
+-- flow churn are different sensors and different themes, but every one of them is the same
+-- observation to a reader: some traffic counter moved. Traffic is also the twitchiest thing
+-- on a network, so left alone it wins nearly every round. Kind is the coarse grouping that
+-- actually matters, and traffic is rationed hardest.
+local function kind_of(key)
+    -- order matters: the rhythm observations are named after the sensor they compare, so
+    -- they have to be recognised before the sensor's own prefix claims them
+    if key == "stillness" or key == "odd_hours" or key == "milestone"
+       or key == "arrival" or key:match("_for_hour$") then return "rhythm" end
+    if key:match("_churn$") or key:match("_kbps$") or key:match("^conn_")
+       or key:match("^wan_") then return "traffic" end
+    if key:match("^presence_") or key:match("_rssi$") or key:match("^office_") then return "presence" end
+    if key:match("^building") then return "neighbours" end
+    if key == "ssh_failures" or key:match("^odd_ports") or key == "vpn_peers_up"
+       or key == "link_flaps" then return "intruder" end
+    if key == "temp_c" or key == "load1" or key == "mem_free_mb" or key == "overlay_pct"
+       or key == "uptime_days" or key == "kernel_errors" or key == "tunnel_age_s" then return "body" end
+    return "other"
+end
+
+
+local KIND_MUTE = {
+    traffic = 6 * 3600,   -- at most a few a day, and never twice in an evening
+    presence = 2 * 3600,
+    neighbours = 3 * 3600,
+    intruder = 1800,      -- someone picking at the lock may be said twice
+    body = 6 * 3600,
+    rhythm = 6 * 3600,
+    other = 3 * 3600,
+}
+
 local function shape_of(a)
     if a.shape then return a.shape end
     if a.key:match("_added$") then return "arrival" end
@@ -710,6 +791,35 @@ local function find_anomalies(st, vol, s)
         vol.sets[name] = list
     end
 
+    -- What is normal at nine on a Tuesday is not what is normal at nine on a Sunday, and a
+    -- 45 minute band cannot tell the difference. These two sensors get a profile per hour.
+    st.hourly = st.hourly or {}
+    local hour = os.date("%H")
+    for _, key in ipairs({ "building_devices", "office_clients" }) do
+        local v = s.n[key]
+        if v then
+            st.hourly[key] = st.hourly[key] or {}
+            local slot = st.hourly[key][hour]
+            if slot and slot.n >= 3 then
+                local drift = math.abs(v - slot.mean)
+                if drift >= math.max(slot.mean * 0.4, FLOOR[key] or 3) then
+                    out[#out + 1] = { key = key .. "_for_hour", shape = "rhythm", text = string.format(
+                        "%s is %d right now. At this hour it is usually about %d, going by the last %d days.",
+                        HUMAN[key] or key, v, math.floor(slot.mean + 0.5), slot.n) }
+                end
+            end
+            -- one sample per hour per day, smoothed, so a fortnight of habit is remembered
+            local stamp = os.date("%Y-%m-%d-%H")
+            if not slot or slot.stamp ~= stamp then
+                st.hourly[key][hour] = {
+                    n = math.min((slot and slot.n or 0) + 1, 30),
+                    mean = slot and (slot.mean * 0.7 + v * 0.3) or v,
+                    stamp = stamp,
+                }
+            end
+        end
+    end
+
     -- one derived sense of rhythm: is he in earlier or later than he usually is
     if s.t.phone_here and not st.arrived_today then
         st.arrived_today = os.date("%H:%M")
@@ -728,6 +838,8 @@ local function find_anomalies(st, vol, s)
         end
     end
     if os.date("%H:%M") == "04:00" then st.arrived_today = nil end
+
+    for _, e in ipairs(s.events or {}) do out[#out + 1] = e end
 
     -- Nothing happening is a fact about the room as much as a surge is, and after a few
     -- hours of it a resident would remark on the stillness rather than stay mute.
@@ -1229,6 +1341,32 @@ local function main()
         log("cold start: baseline taken, nothing counts as odd yet")
     end
 
+    -- how every sensor is grouped, and how long each group is currently muted
+    if MODE_ARG == "kinds" then
+        local keys = {
+            "conn_total", "wan_rx_kbps", "wan_tx_kbps", "desk_churn", "laptop_down_kbps",
+            "desk_rssi", "office_others", "presence_desk", "arrival",
+            "building_devices", "building_macs_added", "building_devices_for_hour",
+            "ssh_failures", "odd_ports_added", "vpn_peers_up",
+            "temp_c", "load1", "uptime_days", "milestone",
+            "odd_hours", "stillness",
+        }
+        local by = {}
+        for _, k in ipairs(keys) do
+            local kd = kind_of(k)
+            by[kd] = by[kd] or {}
+            table.insert(by[kd], k)
+        end
+        for kd, list in pairs(by) do
+            local last = (st.kind_last or {})[kd]
+            print(string.format("%-11s mute %4.1fh   last used %s\n            %s",
+                kd, (KIND_MUTE[kd] or 10800) / 3600,
+                last and os.date("%d %b %H:%M", last) or "never",
+                table.concat(list, ", ")))
+        end
+        return
+    end
+
     -- the same answer the bot gives, without needing Telegram to ask
     if MODE_ARG == "status" then
         print(handle_command(st, "/status"))
@@ -1308,14 +1446,17 @@ local function main()
 
     if allowed then
         st.muted, st.theme_last, st.shape_last = st.muted or {}, st.theme_last or {}, st.shape_last or {}
+        st.kind_last = st.kind_last or {}
         local mute       = (st.mode == "test") and TEST_MUTE or SUBJECT_MUTE
         local theme_mute = (st.mode == "test") and TEST_THEME_MUTE or 5400
         local fresh = {}
         for _, a in ipairs(anomalies) do
-            local th = theme_of(a.key)
+            local th, kd = theme_of(a.key), kind_of(a.key)
+            local kind_mute = (st.mode == "test") and 600 or (KIND_MUTE[kd] or 3 * 3600)
             if (os.time() - (st.muted[a.key] or 0)) > mute
-               and (os.time() - (st.theme_last[th] or 0)) > theme_mute then
-                a.theme, a.shape = th, shape_of(a)
+               and (os.time() - (st.theme_last[th] or 0)) > theme_mute
+               and (os.time() - (st.kind_last[kd] or 0)) > kind_mute then
+                a.theme, a.shape, a.kind = th, shape_of(a), kd
                 fresh[#fresh + 1] = a
             end
         end
@@ -1323,6 +1464,9 @@ local function main()
         -- monitor for the one sensor that happens to twitch most often
         -- rank by whichever has waited longest, counting theme and sentence-shape together
         table.sort(fresh, function(x, y)
+            -- kind dominates: whatever he has been quiet about longest, in substance
+            local kx, ky = st.kind_last[x.kind] or 0, st.kind_last[y.kind] or 0
+            if kx ~= ky then return kx < ky end
             local sx = (st.theme_last[x.theme] or 0) + (st.shape_last[x.shape] or 0)
             local sy = (st.theme_last[y.theme] or 0) + (st.shape_last[y.shape] or 0)
             if sx ~= sy then return sx < sy end
@@ -1362,10 +1506,11 @@ local function main()
                     st.muted[chosen.key] = os.time()
                     st.theme_last[chosen.theme] = os.time()
                     st.shape_last[chosen.shape] = os.time()
+                    st.kind_last[chosen.kind] = os.time()
                     st.recent_subjects = st.recent_subjects or {}
                     table.insert(st.recent_subjects, 1, utf8_trunc((text:gsub("\n", " ")), 60))
                     while #st.recent_subjects > 6 do table.remove(st.recent_subjects) end
-                    log("spoke (%s/%s/%s): %s", chosen.theme, chosen.shape, chosen.key,
+                    log("spoke (%s/%s/%s): %s", chosen.kind, chosen.shape, chosen.key,
                         utf8_trunc((text:gsub("\n", " ")), 160))
                 end
             elseif text == nil then

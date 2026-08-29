@@ -80,7 +80,21 @@ Two kinds of oddity are detected generically:
 - **membership**, when anything appears in or disappears from a set: a device, a neighbour on
   the upstream network, an unusual destination port.
 
-Variety is enforced along two axes, and the second one is easy to miss. **Theme** keeps him off
+Variety is enforced along three axes, and the coarsest one matters most. **Kind** is what a
+remark is actually about: traffic, presence, neighbours, an intruder, his own body, the rhythm
+of the place. Connections, throughput and per-device flow churn are different sensors and
+different themes but the same observation to a reader, and traffic is by far the twitchiest
+thing on a network, so left to itself it wins nearly every round: five of six consecutive
+remarks here were some counter going up. Traffic is therefore rationed to one remark in six
+hours, and the kind that has waited longest is chosen first.
+
+Which means the other kinds have to have something to say, so several observations exist that
+are not counters at all: a machine arriving or leaving and how long it was gone, someone at the
+desk at an hour the room is normally empty, an uptime milestone, a stretch of stillness, and
+hour-of-day profiles for the slow human sensors, because what is normal at nine on a Tuesday is
+not what is normal at nine on a Sunday and a 45 minute band cannot tell the difference.
+
+Variety is enforced along two further axes, and the second one is easy to miss. **Theme** keeps him off
 one subject; **shape** keeps him off one sentence. Six remarks reading "X is N now, usually M"
 are varied by theme and identical to read, so each oddity also carries a shape (a level rising,
 something quieting, an arrival, a departure, a change of rhythm, a stretch of stillness) and the
@@ -177,6 +191,7 @@ bottom of `finn.lua`.
 /root/finn/tick.sh facts      # what the box sees right now: sends nothing, records nothing
 /root/finn/tick.sh say "..."  # make him speak on a given occasion
 /root/finn/tick.sh status     # the same answer /status gives in the bot
+/root/finn/tick.sh kinds      # how each sensor is grouped, and when each group last spoke
 ```
 
 `facts` is strictly read-only, and that matters more than it looks: an inspection that saved
