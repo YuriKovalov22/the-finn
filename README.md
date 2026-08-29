@@ -168,6 +168,9 @@ at no cost:
 | `/chatty` | at most 10 a day, 15 minutes apart |
 | `/test` | no daily ceiling, one a minute, for two hours, then back to `/chatty` by itself |
 | `/voice` | `beep` plays a pip when he posts, `speak` reads the remark aloud, `off` keeps him to Telegram |
+| `/machines` | lists the machines he can control and which are awake |
+| `/wake <name>` | sends a WOL magic packet, waits, and tells you whether it actually came up |
+| `/sleep <name>` | sleeps the machine over SSH |
 
 Test mode spends its own budget. Otherwise an afternoon of watching him work leaves him mute
 for the rest of the day, which is exactly what happened here: two hours of testing burned 22

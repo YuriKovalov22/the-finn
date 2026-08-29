@@ -1299,6 +1299,52 @@ local function counters(st)
     return "spoke_today", "calls_today"
 end
 
+
+----------------------------------------------------------------- machine control
+
+-- FINN_MACHINES = "mac=d2:4c:e1:3c:31:01/192.168.8.167/yuri, nas=.../.../admin"
+--   name = MAC / ip / ssh-user   (ip and user optional; without them only /wake works)
+-- Wake is a WOL magic packet, which needs the machine wired or genuinely WoWLAN-capable.
+-- Sleep is an ssh command to the machine itself, over /root/.ssh/id_mac.
+local function machines()
+    local out = {}
+    for spec in (env("FINN_MACHINES") or ""):gmatch("[^,]+") do
+        local name, rest = spec:match("^%s*(.-)%s*=%s*(.-)%s*$")
+        if name and rest then
+            local mac, ip, user = rest:match("^([^/]*)/?([^/]*)/?(.*)$")
+            out[name:lower()] = {
+                name = name,
+                mac  = (mac  ~= "" and mac)  or nil,
+                ip   = (ip   ~= "" and ip)   or nil,
+                user = (user ~= "" and user) or nil,
+            }
+        end
+    end
+    return out
+end
+
+local function wol(m)
+    if not m.mac then return false, "no MAC on record" end
+    local iface = env("FINN_WOL_IFACE") or "br-lan"
+    sh("etherwake -i " .. iface .. " " .. m.mac .. " 2>/dev/null")
+    return true, "magic packet sent to " .. m.mac
+end
+
+local function mac_ssh(m, remote_cmd)
+    if not (m.ip and m.user) then return false, "no ssh address on record" end
+    -- dropbear, not OpenSSH: no ConnectTimeout flag, so the outer `timeout` bounds it;
+    -- -y accepts an unknown host key once, BatchMode keeps it from ever blocking on a prompt
+    local out = sh(string.format(
+        "timeout 10 ssh -T -y -i /root/.ssh/id_mac -o BatchMode=yes %s@%s %q 2>&1",
+        m.user, m.ip, remote_cmd))
+    return true, out
+end
+
+local function is_up(m)
+    if not m.ip then return nil end
+    return sh("ping -c1 -W1 " .. m.ip .. " >/dev/null 2>&1 && echo up"):match("up") ~= nil
+end
+
 ----------------------------------------------------------------- bot commands
 
 local HELP = [[Что я умею.
@@ -1310,6 +1356,9 @@ local HELP = [[Что я умею.
 /chatty  до 10 раз в день
 /test    без лимита, раз в минуту, 2 часа, потом сам вернусь в chatty
 /voice   пикать, говорить или молчать: /voice beep | speak | off
+/machines  список моих компов и кто из них не спит
+/wake <имя>  разбудить (WOL)
+/sleep <имя> усыпить (по ssh)
 
 Пишешь мне, отвечаю всегда, в любом режиме.]]
 
@@ -1330,6 +1379,47 @@ local function handle_command(st, text)
             "/voice beep — пикать, /voice speak — говорить вслух, /voice off — молчать.",
             mode, has_speaker() and "на месте" or "не воткнут",
             env("FINN_VOICE_FROM") or "9", env("FINN_VOICE_TO") or "19")
+    end
+    if cmd == "/wake" or cmd == "/sleep" or cmd == "/machines" then
+        local list = machines()
+        if cmd == "/machines" then
+            if not next(list) then return "Мне нечем управлять. Задай FINN_MACHINES в env." end
+            local lines = {}
+            for _, m in pairs(list) do
+                local st_ = is_up(m)
+                lines[#lines + 1] = string.format("%s — %s%s", m.name,
+                    st_ == nil and "не знаю (нет ip)" or (st_ and "не спит" or "молчит, спит или выключен"),
+                    m.user and "" or " (сон недоступен, нет ssh)")
+            end
+            return "Машины:\n" .. table.concat(lines, "\n")
+        end
+        local which = text:match("^/%a+%s+(%S+)")
+        local m = which and list[which:lower()]
+        if not m then
+            local names = {}
+            for k in pairs(list) do names[#names + 1] = k end
+            return #names > 0
+                and ("Какую? " .. cmd .. " " .. table.concat(names, " / "))
+                or "Сначала задай FINN_MACHINES в env."
+        end
+        if cmd == "/wake" then
+            local ok2, msg = wol(m)
+            if not ok2 then return "Не могу разбудить " .. m.name .. ": " .. msg end
+            -- give it a moment, then say whether it actually came up
+            sh("sleep 8")
+            local up = is_up(m)
+            if up == true then return m.name .. " проснулся." end
+            if up == false then
+                return m.name .. ": пакет ушёл, но машина не ответила за 8 секунд. " ..
+                       "По Wi-Fi Mac так будить обычно не выходит (нужен кабель или Sleep Proxy), " ..
+                       "по проводу должно сработать."
+            end
+            return "Разбудил " .. m.name .. ", проверить не могу (нет ip)."
+        else
+            local ok2, out = mac_ssh(m, "sudo /usr/sbin/pmset sleepnow || pmset sleepnow || osascript -e 'tell app \"System Events\" to sleep'")
+            if not ok2 then return "Не могу усыпить " .. m.name .. ": " .. out end
+            return m.name .. " отправлен в сон." .. ((out ~= "" and not out:match("^%s*$")) and ("\n" .. out:sub(1,120)) or "")
+        end
     end
     if cmd == "/test" then
         st.mode, st.test_until = "test", os.time() + TEST_DURATION
@@ -1402,6 +1492,12 @@ local function main()
             print(string.format("%-19s %-16s %-11s %s", l.host, l.ip,
                 assoc2[l.mac] and "yes" or "no", label or ""))
         end
+        return
+    end
+
+    -- run a bot command from the console: tick.sh cmd "/machines"
+    if MODE_ARG == "cmd" then
+        print(handle_command(load_state(), arg[2] or "/help") or "(no such command)")
         return
     end
 
