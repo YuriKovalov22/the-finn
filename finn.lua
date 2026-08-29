@@ -1345,6 +1345,21 @@ local function is_up(m)
     return sh("ping -c1 -W1 " .. m.ip .. " >/dev/null 2>&1 && echo up"):match("up") ~= nil
 end
 
+-- Ping is not wakefulness: a Mac asleep on wifi answers ping from its wifi chip while the
+-- screen stays dark. The honest test is asking the machine itself whether its display is on,
+-- which needs ssh. Returns true (awake), false (asleep), or nil (cannot tell).
+local function is_awake(m)
+    if not (m.ip and m.user) then return nil end
+    -- IODisplayWrangler DevicePowerState is 4 when the panel is on, <4 when asleep
+    local out = sh(string.format(
+        "timeout 10 ssh -T -y -i /root/.ssh/id_mac -o BatchMode=yes %s@%s " ..
+        "%q 2>/dev/null", m.user, m.ip,
+        "ioreg -n IODisplayWrangler -r | awk -F'=' '/DevicePowerState/{print $2; exit}'"))
+    local n = tonumber((out or ""):match("%d+"))
+    if n == nil then return nil end
+    return n >= 4
+end
+
 ----------------------------------------------------------------- bot commands
 
 local HELP = [[Что я умею.
@@ -1386,10 +1401,16 @@ local function handle_command(st, text)
             if not next(list) then return "Мне нечем управлять. Задай FINN_MACHINES в env." end
             local lines = {}
             for _, m in pairs(list) do
-                local st_ = is_up(m)
-                lines[#lines + 1] = string.format("%s — %s%s", m.name,
-                    st_ == nil and "не знаю (нет ip)" or (st_ and "не спит" or "молчит, спит или выключен"),
-                    m.user and "" or " (сон недоступен, нет ssh)")
+                local awake = is_awake(m)
+                local state
+                if awake == true then state = "не спит"
+                elseif awake == false then state = "спит"
+                else
+                    local up = is_up(m)
+                    state = up == nil and "не знаю (нет ip)"
+                        or (up and "отвечает на сеть (сон/бодрость не отличить без ssh)" or "молчит")
+                end
+                lines[#lines + 1] = string.format("%s — %s", m.name, state)
             end
             return "Машины:\n" .. table.concat(lines, "\n")
         end
@@ -1403,18 +1424,22 @@ local function handle_command(st, text)
                 or "Сначала задай FINN_MACHINES в env."
         end
         if cmd == "/wake" then
+            local before = is_awake(m)
             local ok2, msg = wol(m)
             if not ok2 then return "Не могу разбудить " .. m.name .. ": " .. msg end
-            -- give it a moment, then say whether it actually came up
             sh("sleep 8")
-            local up = is_up(m)
-            if up == true then return m.name .. " проснулся." end
-            if up == false then
-                return m.name .. ": пакет ушёл, но машина не ответила за 8 секунд. " ..
-                       "По Wi-Fi Mac так будить обычно не выходит (нужен кабель или Sleep Proxy), " ..
-                       "по проводу должно сработать."
+            local after = is_awake(m)
+            if after == true and before == false then return m.name .. " проснулся, экран включился." end
+            if after == true then return m.name .. " уже не спал." end
+            if after == false then
+                return m.name .. ": магический пакет ушёл, но машина осталась спать. " ..
+                       "Так и есть с Mac по Wi-Fi: чип отвечает на сеть, но экран не будится " ..
+                       "без кабеля или Sleep Proxy. По проводу заработает."
             end
-            return "Разбудил " .. m.name .. ", проверить не могу (нет ip)."
+            -- no ssh: fall back to the honest-but-weak ping test, and say it is weak
+            local up = is_up(m)
+            return up and (m.name .. ": пакет ушёл, машина отвечает на сеть. Спит она или нет, " ..
+                    "по Wi-Fi без ssh не отличить.") or (m.name .. ": пакет ушёл, ответа нет.")
         else
             local ok2, out = mac_ssh(m, "sudo /usr/sbin/pmset sleepnow || pmset sleepnow || osascript -e 'tell app \"System Events\" to sleep'")
             if not ok2 then return "Не могу усыпить " .. m.name .. ": " .. out end
