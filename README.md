@@ -80,6 +80,16 @@ Two kinds of oddity are detected generically:
 - **membership**, when anything appears in or disappears from a set: a device, a neighbour on
   the upstream network, an unusual destination port.
 
+Variety is enforced along two axes, and the second one is easy to miss. **Theme** keeps him off
+one subject; **shape** keeps him off one sentence. Six remarks reading "X is N now, usually M"
+are varied by theme and identical to read, so each oddity also carries a shape (a level rising,
+something quieting, an arrival, a departure, a change of rhythm, a stretch of stillness) and the
+longest-waiting combination of the two wins. He is also shown his own last few remarks and told
+not to reuse their form.
+
+Stillness is itself an observation: after some hours in which nothing has left its range, he is
+handed that fact rather than staying mute, because a resident would remark on a quiet evening.
+
 Two rules stop him degenerating into a monitor for whichever sensor twitches most. Every
 oddity carries a **theme** (ports, the room, the wider network, people, his own body, the
 network, an intruder); a theme that has just been used goes quiet for ninety minutes, and

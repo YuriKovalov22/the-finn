@@ -353,6 +353,17 @@ local function sense(vol)
     s.n.office_clients = size(assoc)
     s.n.office_others  = others
     s.t.known_others   = (#present > 0) and table.concat(present, ", ") or nil
+
+    -- so an arrival or a departure can be reported as "your desktop" rather than a MAC
+    local names = {}
+    for role, l in pairs(roles) do
+        if l then names[l.mac] = "your " .. (role == "desk" and "desktop" or role) end
+    end
+    for _, l in ipairs(ls) do
+        local label = labels[l.host:lower()]
+        if label then names[l.mac] = label end
+    end
+    s.t.mac_names = names
     s.sets.office_macs = keys(assoc)
 
     -- The wider network this router hangs off, seen through whichever interface faces it.
@@ -490,6 +501,15 @@ local THEME = {
     ssh_failures = "intruder",
 }
 local function theme_of(key) return THEME[key] or "other" end
+
+-- Theme keeps him off one subject; shape keeps him off one sentence. Six remarks in a row
+-- reading "X is N now, usually M" are varied by theme and identical to read.
+local function shape_of(a)
+    if a.shape then return a.shape end
+    if a.key:match("_added$") then return "arrival" end
+    if a.key:match("_gone$")  then return "departure" end
+    return "level"
+end
 
 -- Sensors whose small wobbles mean nothing; below this a change is not worth a word.
 local FLOOR = {
@@ -630,13 +650,13 @@ local function find_anomalies(st, vol, s)
                 local avg, label = sum / #h, HUMAN[key] or key
                 if v > hi and (v - hi) >= floor then
                     local sense_of_it = feels(key, "hi")
-                    out[#out + 1] = { key = key, text = string.format(
+                    out[#out + 1] = { key = key, shape = "level", text = string.format(
                         "%s is %s, higher than anything in the last %d minutes (usual around %s).%s",
                         label, value(key, v), #h, value(key, avg),
                         sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
                 elseif v < lo and (lo - v) >= floor then
                     local sense_of_it = feels(key, "lo")
-                    out[#out + 1] = { key = key, text = string.format(
+                    out[#out + 1] = { key = key, shape = "quieting", text = string.format(
                         "%s has fallen to %s, lower than anything in the last %d minutes (usual around %s).%s",
                         label, value(key, v), #h, value(key, avg),
                         sense_of_it and (" It feels like " .. sense_of_it .. ".") or "") }
@@ -656,18 +676,21 @@ local function find_anomalies(st, vol, s)
         if was then
             local was_set = set_of(was)
             local added, never, gone = {}, {}, {}
+            local function pretty(k)
+                return (name == "office_macs" and s.t.mac_names and s.t.mac_names[k]) or k
+            end
             for k in pairs(now_set) do
                 if not was_set[k] then
                     local last = st.seen[name .. "/" .. k]
                     if not last then
-                        added[#added + 1] = k; never[#never + 1] = k
+                        added[#added + 1] = pretty(k); never[#never + 1] = pretty(k)
                     elseif (nowt - last) > rule.novelty_h * 3600 then
-                        added[#added + 1] = k
+                        added[#added + 1] = pretty(k)
                     end
                 end
             end
             if rule.report_gone then
-                for k in pairs(was_set) do if not now_set[k] then gone[#gone + 1] = k end end
+                for k in pairs(was_set) do if not now_set[k] then gone[#gone + 1] = pretty(k) end end
             end
             if #added > 0 then
                 local sense_of_it = feels(name .. "_added")
@@ -705,6 +728,23 @@ local function find_anomalies(st, vol, s)
         end
     end
     if os.date("%H:%M") == "04:00" then st.arrived_today = nil end
+
+    -- Nothing happening is a fact about the room as much as a surge is, and after a few
+    -- hours of it a resident would remark on the stillness rather than stay mute.
+    local quiet_for = os.time() - (st.last_spoke_at or 0)
+    if #out == 0 and quiet_for > 4 * 3600 and (st.last_stillness or 0) < os.time() - 8 * 3600 then
+        st.last_stillness = os.time()
+        local who = {}
+        for _, role in ipairs({ "desk", "phone", "laptop" }) do
+            if s.t[role .. "_here"] then who[#who + 1] = role end
+        end
+        out[#out + 1] = { key = "stillness", shape = "stillness", text = string.format(
+            "Nothing has left its usual range for %d hours. %d devices on the office wifi, %s of " ..
+            "yours present, uptime %.1f days, %s C inside him. This is not a fault, it is simply a " ..
+            "quiet stretch, and he has been standing in it.",
+            math.floor(quiet_for / 3600), s.n.office_clients or 0, #who > 0 and table.concat(who, " and ") or "none",
+            s.n.uptime_days or 0, tostring(s.n.temp_c or 0)) }
+    end
     return out
 end
 
@@ -815,8 +855,10 @@ physically witnesses. You have no access to mail, calendar, CRM, or the internet
 If asked about anything else, say plainly that you only see the hallway. Never invent an
 observation that is not in the facts, and never dress a number up as something it is not.
 
-Structure of a remark, and keep to it. The first sentence is the plain fact, in ordinary
-words, and it must stand on its own for a reader who knows nothing about routers. Name the
+Structure of a remark. The plain fact belongs in the first sentence, and it must stand on
+its own for a reader who knows nothing about routers. You may open on the sensation instead
+when you are told your recent remarks have all opened the same way, but then the fact comes
+immediately after, in the very next sentence, never buried at the end and never left out. Name the
 subject in plain language (the laptop, your own case, the cable, the office wifi), name
 what was measured in words rather than jargon (new connections in a minute, download
 through the cable, temperature inside you), then the value and what it usually is. No
@@ -1265,7 +1307,7 @@ local function main()
         and hour >= QUIET_FROM and hour < QUIET_TO
 
     if allowed then
-        st.muted, st.theme_last = st.muted or {}, st.theme_last or {}
+        st.muted, st.theme_last, st.shape_last = st.muted or {}, st.theme_last or {}, st.shape_last or {}
         local mute       = (st.mode == "test") and TEST_MUTE or SUBJECT_MUTE
         local theme_mute = (st.mode == "test") and TEST_THEME_MUTE or 5400
         local fresh = {}
@@ -1273,15 +1315,17 @@ local function main()
             local th = theme_of(a.key)
             if (os.time() - (st.muted[a.key] or 0)) > mute
                and (os.time() - (st.theme_last[th] or 0)) > theme_mute then
-                a.theme = th
+                a.theme, a.shape = th, shape_of(a)
                 fresh[#fresh + 1] = a
             end
         end
         -- whichever theme has been silent longest goes first, so he does not become a
         -- monitor for the one sensor that happens to twitch most often
+        -- rank by whichever has waited longest, counting theme and sentence-shape together
         table.sort(fresh, function(x, y)
-            local lx, ly = st.theme_last[x.theme] or 0, st.theme_last[y.theme] or 0
-            if lx ~= ly then return lx < ly end
+            local sx = (st.theme_last[x.theme] or 0) + (st.shape_last[x.shape] or 0)
+            local sy = (st.theme_last[y.theme] or 0) + (st.shape_last[y.shape] or 0)
+            if sx ~= sy then return sx < sy end
             return math.random() < 0.5
         end)
         if #fresh > 0 then
@@ -1297,7 +1341,11 @@ local function main()
                 "not an alert: you are a resident with an opinion, deciding whether any of it is " ..
                 "worth a word.\n\nOut of the ordinary right now:\n" .. table.concat(lines, "\n") ..
                 "\n\nThe full picture, for context only:\n" .. render(s) ..
-                (said ~= "" and ("\n\nYou recently said: " .. said .. ". Do not repeat yourself.") or "") ..
+                (said ~= "" and ("\n\nYour last few remarks, most recent first:\n" .. said ..
+                 "\n\nDo not repeat their shape. If they all opened with a number and its usual " ..
+                 "value, open differently this time: with the thing itself, with the hour, with " ..
+                 "who is in the room, with what you are not seeing. A remark carrying no number " ..
+                 "at all is allowed when the observation is not really about a number.") or "") ..
                 "\n\nReact to that one thing the way a body reacts, in one or two sentences. Not a " ..
                 "report: a flinch, a laugh, a complaint about your own carcass.\n\nYou are not the filter here; you are allowed to " ..
                 "speak only a few times a day anyway, so do not save yourself for something better. " ..
@@ -1313,10 +1361,11 @@ local function main()
                     st.last_spoke_at = os.time()
                     st.muted[chosen.key] = os.time()
                     st.theme_last[chosen.theme] = os.time()
+                    st.shape_last[chosen.shape] = os.time()
                     st.recent_subjects = st.recent_subjects or {}
                     table.insert(st.recent_subjects, 1, utf8_trunc((text:gsub("\n", " ")), 60))
                     while #st.recent_subjects > 6 do table.remove(st.recent_subjects) end
-                    log("spoke (%s/%s): %s", chosen.theme, chosen.key,
+                    log("spoke (%s/%s/%s): %s", chosen.theme, chosen.shape, chosen.key,
                         utf8_trunc((text:gsub("\n", " ")), 160))
                 end
             elseif text == nil then
