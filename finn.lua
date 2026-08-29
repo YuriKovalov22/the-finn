@@ -354,6 +354,15 @@ local function sense(vol)
         end
     end
 
+    -- The people you know, by the device they carry:
+    -- FINN_PEOPLE="Johns-iPhone=John, Kamilla-MacBook=Kamilla"
+    -- Matched on the DHCP hostname, which survives MAC randomisation on your own SSID.
+    local people = {}
+    for pair in (env("FINN_PEOPLE") or ""):gmatch("[^,]+") do
+        local host, who = pair:match("^%s*(.-)%s*=%s*(.-)%s*$")
+        if host and host ~= "" then people[host:lower()] = who end
+    end
+
     -- Anything else you want him to recognise, so the printer stops being a stranger:
     -- FINN_KNOWN_HOSTS="NPIEE33CD=the office printer, NAS=the file box"
     local labels = {}
@@ -387,6 +396,38 @@ local function sense(vol)
         if label then names[l.mac] = label end
     end
     s.t.mac_names = names
+
+    -- who is in the room, by name, and who has just walked in or out
+    vol.people = vol.people or {}
+    local here_now, present_names = {}, {}
+    for _, l in ipairs(ls) do
+        local who = people[l.host:lower()]
+        if who and assoc[l.mac] then
+            here_now[who] = true
+            present_names[#present_names + 1] = who
+        end
+    end
+    for _, who in pairs(people) do
+        local was = vol.people[who]
+        local is  = here_now[who] or false
+        if was == nil then
+            vol.people[who] = { here = is, since = tnow }
+        elseif was.here ~= is then
+            local gone_for = math.floor((tnow - was.since) / 60)
+            -- a phone that flickers off for a moment is not an arrival
+            if gone_for >= 20 or is == false then
+                s.events[#s.events + 1] = {
+                    key = "person_" .. who, shape = is and "arrival" or "departure",
+                    text = is
+                        and string.format("%s has just joined the office wifi, after %s away. " ..
+                            "That means %s is here, in the room, now.", who, human_dur(gone_for), who)
+                        or  string.format("%s has left the office wifi, after %s here.", who, human_dur(gone_for)),
+                }
+                vol.people[who] = { here = is, since = tnow }
+            end
+        end
+    end
+    s.t.people_here = (#present_names > 0) and table.concat(present_names, ", ") or nil
     s.sets.office_macs = keys(assoc)
 
     -- The wider network this router hangs off, seen through whichever interface faces it.
@@ -565,6 +606,7 @@ local function kind_of(key)
        or key == "arrival" or key:match("_for_hour$") then return "rhythm" end
     if key:match("_churn$") or key:match("_kbps$") or key:match("^conn_")
        or key:match("^wan_") then return "traffic" end
+    if key:match("^person_") then return "people" end
     if key:match("^presence_") or key:match("_rssi$") or key:match("^office_") then return "presence" end
     if key:match("^building") then return "neighbours" end
     if key == "ssh_failures" or key:match("^odd_ports") or key == "vpn_peers_up"
@@ -577,6 +619,7 @@ end
 
 local KIND_MUTE = {
     traffic = 6 * 3600,   -- at most a few a day, and never twice in an evening
+    people = 1200,        -- a person walking in is worth saying almost whenever it happens
     presence = 2 * 3600,
     neighbours = 3 * 3600,
     intruder = 1800,      -- someone picking at the lock may be said twice
@@ -939,6 +982,12 @@ throttled, not that the line is narrow. You have no idea what this connection ca
 unless something actually filled it, and idle wire looks exactly like exhausted wire from
 where you sit. The same goes for a device: quiet is quiet, it is not slow.
 
+People are the exception to your general lack of interest. When someone you know by name
+joins or leaves, say so plainly and say who, and if they have just walked in you may tell
+him to go and say hello. You are still not cheerful about it. You know a person is here
+because the thing in their pocket is on the wifi, so if you have any doubt, say the device
+arrived rather than swearing the person did.
+
 You cannot see anything competing for anything. You have no view of queues, drops,
 contention or what any application is trying to do. So never say a device is taking "most of
 the channel", never say one thing is starving another, never explain that something is slow
@@ -1203,6 +1252,9 @@ local function render(s)
             end
         end
     end
+    if s.t.people_here then
+        out[#out+1] = string.format("- people you know who are here right now: %s", s.t.people_here)
+    end
     if s.n.building_devices then
         out[#out+1] = string.format("- the wider network beyond this router: %d devices visible",
             s.n.building_devices)
@@ -1339,6 +1391,18 @@ local function main()
         s.n.link_flaps = 0          -- the ring buffer's whole history is not news
         vol.initialized = true
         log("cold start: baseline taken, nothing counts as odd yet")
+    end
+
+    -- everything with a lease, so you can write the FINN_PEOPLE line
+    if MODE_ARG == "who" then
+        print("hostname            ip               associated  known as")
+        local ls2, assoc2 = leases(), associated()
+        for _, l in ipairs(ls2) do
+            local label = (s.t.mac_names or {})[l.mac]
+            print(string.format("%-19s %-16s %-11s %s", l.host, l.ip,
+                assoc2[l.mac] and "yes" or "no", label or ""))
+        end
+        return
     end
 
     -- how every sensor is grouped, and how long each group is currently muted

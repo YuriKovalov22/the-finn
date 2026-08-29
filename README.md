@@ -123,6 +123,7 @@ quiet.
 | who is on your wifi, and how strong their signal is | `iwinfo assoclist` |
 | who they are | `/tmp/dhcp.leases`, by hostname, so MAC rotation does not break it |
 | which of them are furniture rather than strangers | `FINN_KNOWN_HOSTS`, hostname to plain name |
+| which of them are people you know | `FINN_PEOPLE`, hostname to a person's name |
 | whether a machine is in use or asleep | per-device flow churn in `/proc/net/nf_conntrack` |
 | how much each device is pulling and sending | conntrack byte counters, when they can be trusted (see below) |
 | how long each machine has been here, and since it last stirred | tracked between ticks |
@@ -267,6 +268,13 @@ any character you write:
    obeyed at once.
 
 ## Privacy
+
+`FINN_PEOPLE` lets him greet people by name: "John's just joined the wifi, go and say hello."
+That is for a network you run and people who know it exists. The same trick pointed at a
+shared building network would work rather well, and that is the point at which this stops
+being a toy and becomes covert attendance tracking of strangers, so it is not built and I
+would not add it. Aggregate counts of the wider network are already there and carry nobody's
+name.
 
 This watches a network, which means it watches the people on it. It is written for a router
 you own, in a room you occupy. Keep it that way. It reports on the owner's own named devices
