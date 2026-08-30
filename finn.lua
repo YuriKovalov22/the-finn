@@ -982,7 +982,15 @@ local function tg(method, params, body)
         for k, v in pairs(params) do q[#q + 1] = k .. "=" .. tostring(v) end
         url = url .. "?" .. table.concat(q, "&")
     end
-    local conf = { 'silent', 'max-time = 30', 'url = "' .. url .. '"' }
+    -- curl's own retry rides out the once-a-day blip when the building uplink hiccups:
+    -- --retry re-sends on a transient failure, --retry-connrefused covers a refused connect,
+    -- and a slightly shorter per-try timeout keeps a hung socket from eating the whole tick.
+    -- curl's --retry rides out the once-a-day blip when the building uplink hiccups. Note:
+    -- this build rejects --retry-connrefused (returns 000), so it is deliberately omitted;
+    -- the send() wrapper does one more explicit attempt to cover a refused connect.
+    local conf = { 'silent', 'max-time = 15', 'connect-timeout = 8',
+                   'retry = 3', 'retry-delay = 2',
+                   'url = "' .. url .. '"' }
     if body then
         write_file("/tmp/finn-tg.json", json.encode(body), "600")
         conf[#conf + 1] = 'header = "content-type: application/json"'
@@ -994,9 +1002,15 @@ end
 
 local function send(chat_id, text)
     if not chat_id then return false end
-    local res = tg("sendMessage", nil, { chat_id = chat_id, text = text })
-    if res and res.ok then return true end
-    log("sendMessage failed: %s", (res and res.description) or "no response")
+    for attempt = 1, 2 do
+        local res = tg("sendMessage", nil, { chat_id = chat_id, text = text })
+        if res and res.ok then return true end
+        if attempt == 1 then
+            sh("sleep 3")   -- one deliberate second try after curl's own retries are spent
+        else
+            log("sendMessage failed after retries: %s", (res and res.description) or "no response")
+        end
+    end
     return false
 end
 
