@@ -789,6 +789,33 @@ local function probe(addr)
     return sh("ping -c1 -W2 " .. addr .. " >/dev/null 2>&1 && echo up"):match("up") ~= nil
 end
 
+
+-- A congestion alarm distinct from the anomaly narration: latency to the building gateway
+-- held above a threshold for a few minutes is the unambiguous signature of a saturated shared
+-- link. Treated as urgent (fleet-grade), so it reaches you past quiet hours.
+local function congestion_alarm(vol, s)
+    local thresh = tonumber(env("FINN_CONGEST_MS") or "15")
+    local need   = tonumber(env("FINN_CONGEST_MINS") or "5")
+    local lat = s.n.gw_latency_ms
+    if not lat then return {} end
+    vol.congest = vol.congest or { over = 0, firing = false }
+    local c = vol.congest
+    if lat >= thresh then c.over = c.over + 1 else c.over = 0 end
+    local events = {}
+    if c.over >= need and not c.firing then
+        c.firing = true
+        events[#events + 1] = { key = "congestion_alarm", shape = "level", kind = "fleet",
+            text = string.format("The line to the building gateway has been slow for %d minutes " ..
+                "straight, %s ms now against a normal of well under one. The shared connection is " ..
+                "choked. If our own traffic is low, it is not us filling it.", c.over, tostring(round(lat,0))) }
+    elseif c.over == 0 and c.firing then
+        c.firing = false
+        events[#events + 1] = { key = "congestion_alarm", shape = "quieting", kind = "fleet",
+            text = "The line to the gateway is quick again. Whatever was choking the shared connection has let up." }
+    end
+    return events
+end
+
 -- Returns a list of anomaly-shaped events for anything that just changed state.
 local function watchdog(vol)
     local targets = watch_targets()
@@ -947,6 +974,7 @@ local function find_anomalies(st, vol, s)
 
     for _, e in ipairs(s.events or {}) do out[#out + 1] = e end
     for _, e in ipairs(watchdog(vol)) do out[#out + 1] = e end
+    for _, e in ipairs(congestion_alarm(vol, s)) do out[#out + 1] = e end
 
     -- Nothing happening is a fact about the room as much as a surge is, and after a few
     -- hours of it a resident would remark on the stillness rather than stay mute.

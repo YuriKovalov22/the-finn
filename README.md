@@ -142,6 +142,7 @@ quiet.
 | failed SSH logins and real kernel errors | `logread`, with the wifi driver's constant screaming filtered out |
 | whether you arrived earlier or later than usual | rolling history of first phone appearance |
 | whether the servers your fleet depends on are still up | `FINN_WATCH`, ping or HTTP probe |
+| whether the shared uplink is congested | sustained gateway latency over `FINN_CONGEST_MS` |
 
 Per-device throughput deserves a warning. It is read from conntrack byte counters, and on any
 router with hardware NAT offload, which includes this one, established flows are handled in
