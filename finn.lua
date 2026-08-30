@@ -609,6 +609,7 @@ local function kind_of(key)
     if key:match("^person_") then return "people" end
     if key:match("^presence_") or key:match("_rssi$") or key:match("^office_") then return "presence" end
     if key:match("^building") then return "neighbours" end
+    if key:match("^watch_") then return "fleet" end
     if key == "ssh_failures" or key:match("^odd_ports") or key == "vpn_peers_up"
        or key == "link_flaps" then return "intruder" end
     if key == "temp_c" or key == "load1" or key == "mem_free_mb" or key == "overlay_pct"
@@ -622,6 +623,7 @@ local KIND_MUTE = {
     people = 1200,        -- a person walking in is worth saying almost whenever it happens
     presence = 2 * 3600,
     neighbours = 3 * 3600,
+    fleet = 900,          -- an outage may be repeated; you want to know it is still down
     intruder = 1800,      -- someone picking at the lock may be said twice
     body = 6 * 3600,
     rhythm = 6 * 3600,
@@ -757,6 +759,64 @@ local function push_hist(store, key, v, cap)
     return h
 end
 
+----------------------------------------------------------------- fleet watchdog
+
+-- The router is the only vantage point outside the Hetzner blast radius. If the box that
+-- runs the whole fleet dies, or the office loses the internet, this is what still notices.
+-- FINN_WATCH = "Hetzner=94.130.65.87, CRM=https://crm.pflb.us, site=https://pflb.us"
+--   host or url; a bare host is pinged, an http(s) url is fetched for a 2xx/3xx.
+-- Down/up transitions are events; a target must miss FINN_WATCH_FAILS checks before it is
+-- called down, so one dropped packet is not an outage.
+local function watch_targets()
+    local out = {}
+    for spec in (env("FINN_WATCH") or ""):gmatch("[^,]+") do
+        local name, addr = spec:match("^%s*(.-)%s*=%s*(.-)%s*$")
+        if name and addr and addr ~= "" then out[#out + 1] = { name = name, addr = addr } end
+    end
+    return out
+end
+
+local function probe(addr)
+    if addr:match("^https?://") then
+        local code = trim(sh("curl -s -o /dev/null -m 8 -w '%{http_code}' " ..
+                             "'" .. addr .. "' 2>/dev/null"))
+        local n = tonumber(code)
+        return n ~= nil and n >= 200 and n < 400
+    end
+    return sh("ping -c1 -W2 " .. addr .. " >/dev/null 2>&1 && echo up"):match("up") ~= nil
+end
+
+-- Returns a list of anomaly-shaped events for anything that just changed state.
+local function watchdog(vol)
+    local targets = watch_targets()
+    if #targets == 0 then return {} end
+    local need = tonumber(env("FINN_WATCH_FAILS") or "3")
+    vol.watch = vol.watch or {}
+    local events = {}
+    for _, t in ipairs(targets) do
+        local st = vol.watch[t.name] or { fails = 0, down = false }
+        local ok = probe(t.addr)
+        if ok then
+            if st.down then
+                events[#events + 1] = { key = "watch_" .. t.name, shape = "arrival", kind = "fleet",
+                    text = string.format("%s is answering again, after being unreachable.", t.name) }
+            end
+            st.fails, st.down = 0, false
+        else
+            st.fails = st.fails + 1
+            if st.fails >= need and not st.down then
+                st.down = true
+                events[#events + 1] = { key = "watch_" .. t.name, shape = "departure", kind = "fleet",
+                    text = string.format("%s has stopped answering, %d checks running now. " ..
+                        "If that is where the fleet lives, the fleet is dark.", t.name, st.fails) }
+            end
+        end
+        vol.watch[t.name] = st
+    end
+    return events
+end
+
+
 -- generic: anything outside the range this sensor has held recently
 local function find_anomalies(st, vol, s)
     local out = {}
@@ -883,6 +943,7 @@ local function find_anomalies(st, vol, s)
     if os.date("%H:%M") == "04:00" then st.arrived_today = nil end
 
     for _, e in ipairs(s.events or {}) do out[#out + 1] = e end
+    for _, e in ipairs(watchdog(vol)) do out[#out + 1] = e end
 
     -- Nothing happening is a fact about the room as much as a surge is, and after a few
     -- hours of it a resident would remark on the stillness rather than stay mute.
@@ -902,6 +963,7 @@ local function find_anomalies(st, vol, s)
     end
     return out
 end
+
 
 ----------------------------------------------------------------- voice
 
@@ -1622,12 +1684,20 @@ local function main()
     local hour = tonumber(os.date("%H"))
     local since = st.last_spoke_at and (os.time() - st.last_spoke_at) / 60 or 1e9
     local sk, ck = counters(st)
+    -- a fleet outage is the one thing worth waking him for at any hour and past any budget
+    local has_outage = false
+    for _, a in ipairs(anomalies) do if kind_of(a.key) == "fleet" then has_outage = true end end
+
+    -- An outage is why the watchdog exists: it overrides the daily allowance, the gap between
+    -- remarks, and quiet hours. The one guard it keeps is the hard model-call ceiling, so a
+    -- flapping target cannot bill infinitely; fleet's short kind-mute paces the repeats.
     local allowed = chat_id and #anomalies > 0
-        and m.max > 0
-        and (st[sk] or 0) < allowance_now(m, st.mode)
         and (st[ck] or 0) < ((st.mode == "test") and TEST_CALL_CAP or CALL_BUDGET)
-        and since >= m.gap
-        and hour >= QUIET_FROM and hour < QUIET_TO
+        and (has_outage or (
+                m.max > 0
+                and (st[sk] or 0) < allowance_now(m, st.mode)
+                and since >= m.gap
+                and hour >= QUIET_FROM and hour < QUIET_TO))
 
     if allowed then
         st.muted, st.theme_last, st.shape_last = st.muted or {}, st.theme_last or {}, st.shape_last or {}

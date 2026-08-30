@@ -101,6 +101,12 @@ something quieting, an arrival, a departure, a change of rhythm, a stretch of st
 longest-waiting combination of the two wins. He is also shown his own last few remarks and told
 not to reuse their form.
 
+The watchdog is worth calling out because it inverts the usual arrangement: a router is the one
+vantage point *outside* the blast radius of the server it depends on, so it is what still speaks
+when that server dies. `FINN_WATCH` maps names to hosts or URLs; a target has to miss several
+checks before he calls it down, and an outage is the single thing allowed past quiet hours and
+the daily budget, because being woken at 3am is the whole point of it.
+
 Stillness is itself an observation: after some hours in which nothing has left its range, he is
 handed that fact rather than staying mute, because a resident would remark on a quiet evening.
 
@@ -135,6 +141,7 @@ quiet.
 | his own temperature, load, memory, disk, uptime | `/sys`, `/proc` |
 | failed SSH logins and real kernel errors | `logread`, with the wifi driver's constant screaming filtered out |
 | whether you arrived earlier or later than usual | rolling history of first phone appearance |
+| whether the servers your fleet depends on are still up | `FINN_WATCH`, ping or HTTP probe |
 
 Per-device throughput deserves a warning. It is read from conntrack byte counters, and on any
 router with hardware NAT offload, which includes this one, established flows are handled in
