@@ -604,6 +604,7 @@ local function kind_of(key)
     -- they have to be recognised before the sensor's own prefix claims them
     if key == "stillness" or key == "odd_hours" or key == "milestone"
        or key == "arrival" or key:match("_for_hour$") then return "rhythm" end
+    if key == "gw_latency_ms" or key == "gw_loss_pct" then return "congestion" end
     if key:match("_churn$") or key:match("_kbps$") or key:match("^conn_")
        or key:match("^wan_") then return "traffic" end
     if key:match("^person_") then return "people" end
@@ -623,6 +624,7 @@ local KIND_MUTE = {
     people = 1200,        -- a person walking in is worth saying almost whenever it happens
     presence = 2 * 3600,
     neighbours = 3 * 3600,
+    congestion = 2 * 3600,  -- the shared pipe choking is worth saying, but not on repeat
     fleet = 900,          -- an outage may be repeated; you want to know it is still down
     intruder = 1800,      -- someone picking at the lock may be said twice
     body = 6 * 3600,
@@ -682,8 +684,9 @@ local FEEL = {
                           lo = "nothing to do with his hands" },
     mem_free_mb       = { hi = "room to stretch out", lo = "crowding, no space to breathe" },
     overlay_pct       = { hi = "full up, pockets stuffed" },
-    gw_latency_ms     = { hi = "wading through mud, everything answering late",
-                          lo = "everything suddenly quick and clean" },
+    gw_latency_ms     = { hi = "the whole building leaning on the same pipe, everything " ..
+                                "answering late through no fault of yours",
+                          lo = "the pipe suddenly clear again, answers coming quick" },
     gw_loss_pct       = { hi = "going deaf in one ear, words dropping out of sentences" },
     uptime_days       = { hi = "old bones, another day standing in the same spot" },
     wan_rx_kbps       = { hi = "a flood pouring down his throat", lo = "the pipe gone dry, throat parched" },
