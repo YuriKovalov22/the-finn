@@ -1584,7 +1584,9 @@ local function main()
 
     -- run a bot command from the console: tick.sh cmd "/machines"
     if MODE_ARG == "cmd" then
-        print(handle_command(load_state(), arg[2] or "/help") or "(no such command)")
+        local st = load_state()
+        print(handle_command(st, arg[2] or "/help") or "(no such command)")
+        save_state(st)   -- a command may change mode/voice; persist it like the bot does
         return
     end
 
