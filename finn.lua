@@ -290,7 +290,7 @@ local COMMON_PORTS = { ["443"]=1, ["80"]=1, ["53"]=1, ["22"]=1, ["123"]=1,
                        ["5228"]=1, ["993"]=1, ["587"]=1, ["465"]=1, ["8443"]=1 }
 
 local function conntrack()
-    local per_ip, remotes, odd, total = {}, {}, {}, 0
+    local per_ip, remotes, odd, total, agent_conns = {}, {}, {}, 0, 0
     for line in (read_file("/proc/net/nf_conntrack") or ""):gmatch("[^\n]+") do
         local src = line:match("src=(%d+%.%d+%.%d+%.%d+)")
         local dst = line:match("dst=(%d+%.%d+%.%d+%.%d+)")
@@ -304,6 +304,9 @@ local function conntrack()
             -- Traffic to a neighbour on this LAN never touches the cable. Counting it as
             -- throughput makes a device look like it is pulling more than the whole uplink
             -- carried, which is impossible and reads as a lie.
+            -- traffic sourced from the reverse tunnel (10.88.x) is the cloud agents browsing
+            -- through this router for their residential IP, not anyone's local machine
+            if src:match("^10%.88%.") then agent_conns = agent_conns + 1 end
             local outside = not dst:match(LAN_PATTERN)
             per_ip[src] = per_ip[src] or {}
             per_ip[src][key] = { u = tonumber(b_up) or 0, d = tonumber(b_down) or 0, w = outside }
@@ -315,7 +318,7 @@ local function conntrack()
         end
     end
     local nremote = 0; for _ in pairs(remotes) do nremote = nremote + 1 end
-    return per_ip, total, nremote, odd
+    return per_ip, total, nremote, odd, agent_conns
 end
 
 local function count_new(current, previous)
@@ -347,7 +350,7 @@ local function sense(vol)
     local s = { n = {}, sets = {}, t = {}, events = {} }
     local tnow = os.time()
     local ls, assoc = leases(), associated()
-    local per_ip, conn_total, conn_remote, odd_ports = conntrack()
+    local per_ip, conn_total, conn_remote, odd_ports, agent_conns = conntrack()
 
     local roles = {
         desk   = lease_by_host(ls, env("FINN_DESK_HOST")   or "iMac"),
@@ -599,6 +602,7 @@ local function sense(vol)
     end
 
     s.n.conn_total, s.n.conn_remotes = conn_total, conn_remote
+    s.n.agent_conns = agent_conns
     s.sets.odd_ports = keys(odd_ports)
 
     -- Both wireguard interfaces are optional: name them in env if you have them.
@@ -945,7 +949,7 @@ end
 
 -- generic: anything outside the range this sensor has held recently
 -- counters that stay as context but never trigger a remark on their own
-local NO_ANOMALY = { office_clients = true }
+local NO_ANOMALY = { office_clients = true, agent_conns = true }
 
 local function find_anomalies(st, vol, s)
     local out = {}
@@ -1219,6 +1223,17 @@ language. If you cannot tell whether something is unusual, then simply do not co
 whether it is unusual: say the plain thing you did notice, or say nothing at all. Silence
 is always available and costs you nothing. Never mention being a model or an assistant.
 
+The connections and host counts you see are the traffic of THIS office network going out
+through you: the owner's own devices, and the cloud agents that tunnel through you for a
+residential address. They are never the building next door. The building's network is walled
+off from yours, its traffic never passes through you, and you cannot see it. So a surge in
+connections is one of the owner's devices being busy, or the agents working, and never
+"someone behind the wall". If your own devices are quiet and the count is still high, it is
+the agents in the tunnel, not a stranger. Say that, do not invent a crowd you cannot see.
+
+Do not fix on a number of the owner's machines. You know several of his devices by name, not
+only three; never announce "all three of his machines" as if that were all of them.
+
 Hard limit on what you know: only the facts given to you, which is only what this router
 physically witnesses. You have no access to mail, calendar, CRM, or the internet at large.
 If asked about anything else, say plainly that you only see the hallway. Never invent an
@@ -1424,6 +1439,8 @@ local function render(s)
     out[#out+1] = string.format("- %d connections open to %d distinct hosts%s",
         s.n.conn_total, s.n.conn_remotes,
         #s.sets.odd_ports > 0 and (", unusual ports in use: " .. table.concat(s.sets.odd_ports, ", ")) or "")
+    out[#out+1] = string.format("- of those, %d are the cloud agents browsing out through your " ..
+        "tunnel; the rest are this office's own devices", s.n.agent_conns or 0)
     if s.n.tunnel_age_s then
         out[#out+1] = string.format("- the tunnel home last spoke %d seconds ago", s.n.tunnel_age_s)
     end
