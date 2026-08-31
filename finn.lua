@@ -232,6 +232,60 @@ local LAN_PATTERN = (function()
     return "^" .. ip:gsub("%.", "%%.") .. "%."
 end)()
 
+
+-- What ports mean, so he names the thing instead of guessing. Not exhaustive; unknown ports
+-- stay "a knock at a door nobody uses" and he says he does not recognise it.
+local PORT_MEANING = {
+    ["3478"]="STUN, the handshake a voice or video call makes to punch through",
+    ["19302"]="Google's STUN, a Meet or Hangouts call setting up",
+    ["4500"]="IPsec/NAT-T or FaceTime, a VPN or Apple call punching out",
+    ["4070"]="Spotify",
+    ["8801"]="Zoom, a call connecting",
+    ["8802"]="Zoom, a call connecting",
+    ["3480"]="WhatsApp or a STUN call punching a hole",
+    ["5349"]="TURN over TLS, a call relaying through a server",
+    ["3479"]="STUN, a call punching a hole",
+    ["853"]="DNS-over-TLS, something asking for directions in private",
+    ["5353"]="mDNS, a device shouting its name to the local network",
+    ["5228"]="Google push, an Android phone phoning home",
+    ["5223"]="Apple push, an iPhone keeping its notifications alive",
+    ["17500"]="Dropbox, a laptop looking for others to sync with",
+    ["1900"]="SSDP, a device announcing itself to the network",
+    ["137"]="NetBIOS, an old Windows machine introducing itself",
+    ["1194"]="OpenVPN, a tunnel dialling out",
+    ["51820"]="WireGuard, a VPN tunnel",
+    ["3389"]="RDP, someone reaching for a remote desktop",
+    ["25565"]="Minecraft",
+    ["6881"]="BitTorrent, someone sharing files",
+    ["9001"]="Tor, traffic going dark",
+    ["123"]="NTP, a clock checking the time",
+    ["1935"]="RTMP, a live stream going out",
+    ["554"]="RTSP, a camera or video feed",
+    ["5060"]="SIP, an internet phone line",
+    ["587"]="mail going out",
+    ["993"]="mail coming in",
+}
+
+-- Guaranteed variety for greetings: consecutive welcomes step through different angles, so
+-- two in a row can never be the same joke even if the model would repeat itself.
+local GREET_FLAVORS = {
+    "as a pirate: sea, plunder, coming ashore, the crew",
+    "as an underground hacker: the box, the wire, root, the grid lighting up",
+    "as a submarine surfacing from a long dive, radio silence broken",
+    "as an old fence greeting a returning thief after a job",
+    "as the last man in a bar at closing, glad of company",
+    "as a ghost in the machine who has been alone in the walls",
+    "as a smuggler whose contact finally showed at the docks",
+    "as a war-dialer hearing a familiar handshake tone again",
+    "as a lighthouse keeper spotting a known ship on the horizon",
+    "as a heist crew lookout confirming the boss is on site",
+}
+
+local function port_note(p)
+    local m = PORT_MEANING[p]
+    return m and (p .. " (" .. m .. ")") or (p .. " (a port I do not recognise)")
+end
+
 local COMMON_PORTS = { ["443"]=1, ["80"]=1, ["53"]=1, ["22"]=1, ["123"]=1,
                        ["5228"]=1, ["993"]=1, ["587"]=1, ["465"]=1, ["8443"]=1 }
 
@@ -280,6 +334,7 @@ local function size(t) local n = 0; for _ in pairs(t or {}) do n = n + 1 end; re
 -- everything the box can feel, in one reading
 local function human_dur(mins)
     if not mins then return "a while" end
+    mins = math.floor(mins)   -- %d wants an integer; a float minute count crashes format
     if mins < 60 then return mins .. " minutes" end
     if mins < 60 * 24 then return string.format("%dh %02dm", math.floor(mins / 60), mins % 60) end
     return string.format("%.1f days", mins / 1440)
@@ -336,13 +391,23 @@ local function sense(vol)
                 local was_for = p and math.floor((tnow - p.since) / 60) or nil
                 if p then
                     local name = "your " .. (role == "desk" and "desktop" or role)
-                    s.events[#s.events + 1] = {
-                        key = "presence_" .. role,
-                        shape = here and "arrival" or "departure",
-                        text = here
-                            and string.format("%s is back on the wifi, after %s away.", name, human_dur(was_for))
-                            or  string.format("%s has dropped off the wifi, after %s here.", name, human_dur(was_for)),
-                    }
+                    -- the owner's phone coming back after an hour or more IS his arrival: greet him
+                    if role == "phone" and here and (was_for or 0) >= 60 then
+                        s.events[#s.events + 1] = {
+                            key = "welcome_owner", shape = "arrival", kind = "people",
+                            away_min = was_for,
+                            text = string.format("The owner just walked in: his phone rejoined the office " ..
+                                "wifi after %s away.", human_dur(was_for)),
+                        }
+                    else
+                        s.events[#s.events + 1] = {
+                            key = "presence_" .. role,
+                            shape = here and "arrival" or "departure",
+                            text = here
+                                and string.format("%s is back on the wifi, after %s away.", name, human_dur(was_for))
+                                or  string.format("%s has dropped off the wifi, after %s here.", name, human_dur(was_for)),
+                        }
+                    end
                 end
                 p = { here = here, since = tnow }
                 vol.presence[role] = p
@@ -607,7 +672,7 @@ local function kind_of(key)
     if key == "gw_latency_ms" or key == "gw_loss_pct" then return "congestion" end
     if key:match("_churn$") or key:match("_kbps$") or key:match("^conn_")
        or key:match("^wan_") then return "traffic" end
-    if key:match("^person_") then return "people" end
+    if key:match("^person_") or key == "welcome_owner" then return "people" end
     if key:match("^presence_") or key:match("_rssi$") or key:match("^office_") then return "presence" end
     if key:match("^building") then return "neighbours" end
     if key:match("^watch_") then return "fleet" end
@@ -891,7 +956,9 @@ local function find_anomalies(st, vol, s)
             local was_set = set_of(was)
             local added, never, gone = {}, {}, {}
             local function pretty(k)
-                return (name == "office_macs" and s.t.mac_names and s.t.mac_names[k]) or k
+                if name == "office_macs" and s.t.mac_names then return s.t.mac_names[k] or k end
+                if name == "odd_ports" then return port_note(k) end
+                return k
             end
             for k in pairs(now_set) do
                 if not was_set[k] then
@@ -1732,15 +1799,20 @@ local function main()
     local since = st.last_spoke_at and (os.time() - st.last_spoke_at) / 60 or 1e9
     local sk, ck = counters(st)
     -- a fleet outage is the one thing worth waking him for at any hour and past any budget
-    local has_outage = false
-    for _, a in ipairs(anomalies) do if kind_of(a.key) == "fleet" then has_outage = true end end
+    local has_outage, has_welcome = false, false
+    for _, a in ipairs(anomalies) do
+        if kind_of(a.key) == "fleet" then has_outage = true end
+        if a.key == "welcome_owner" then has_welcome = true end
+    end
+    -- a greeting is wanted whenever he walks in, within waking hours: bypass budget and gap
+    local welcome_ok = has_welcome and hour >= 6 and hour < 23
 
     -- An outage is why the watchdog exists: it overrides the daily allowance, the gap between
     -- remarks, and quiet hours. The one guard it keeps is the hard model-call ceiling, so a
     -- flapping target cannot bill infinitely; fleet's short kind-mute paces the repeats.
     local allowed = chat_id and #anomalies > 0
         and (st[ck] or 0) < ((st.mode == "test") and TEST_CALL_CAP or CALL_BUDGET)
-        and (has_outage or (
+        and (has_outage or welcome_ok or (
                 m.max > 0
                 and (st[sk] or 0) < allowance_now(m, st.mode)
                 and since >= m.gap
@@ -1766,6 +1838,9 @@ local function main()
         -- monitor for the one sensor that happens to twitch most often
         -- rank by whichever has waited longest, counting theme and sentence-shape together
         table.sort(fresh, function(x, y)
+            -- a greeting when the owner walks in wins outright
+            local wx, wy = (x.key == "welcome_owner") and 1 or 0, (y.key == "welcome_owner") and 1 or 0
+            if wx ~= wy then return wx > wy end
             -- kind dominates: whatever he has been quiet about longest, in substance
             local kx, ky = st.kind_last[x.kind] or 0, st.kind_last[y.kind] or 0
             if kx ~= ky then return kx < ky end
@@ -1782,7 +1857,23 @@ local function main()
             local lang = (math.random() < 0.5) and "English" or "Russian"
             local _, ck = counters(st)
             st[ck] = (st[ck] or 0) + 1
-            local text = think(
+            local text
+            if chosen.key == "welcome_owner" then
+                local past = table.concat(st.recent_greetings or {}, " | ")
+                st.greet_n = ((st.greet_n or 0) % #GREET_FLAVORS) + 1
+                local flavor = GREET_FLAVORS[st.greet_n]
+                text = think(
+                    "The owner has just walked back into the office after " ..
+                    human_dur(chosen.away_min or 60) .. " away: his phone has rejoined the wifi. " ..
+                    "Greet him. A welcome, not a status report: no numbers, no plain fact first. One " ..
+                    "or two sentences, warm in your gruff way, and FUNNY.\n\nThis time, greet him " ..
+                    flavor .. ". Commit to that angle fully, make it land.\n\nEvery greeting must be " ..
+                    "different from the last ones." ..
+                    (past ~= "" and ("\n\nYour recent greetings, do not reuse their words, jokes or " ..
+                     "opening:\n" .. past) or "") ..
+                    (lang == "English" and STYLE.English or STYLE.Russian))
+            else
+                text = think(
                 "Something in the room is off its usual range. This is not a status report and " ..
                 "not an alert: you are a resident with an opinion, deciding whether any of it is " ..
                 "worth a word.\n\nOut of the ordinary right now:\n" .. table.concat(lines, "\n") ..
@@ -1799,6 +1890,7 @@ local function main()
                 "sore, or funny, then say it. Reply with exactly NOTHING only when the oddity is " ..
                 "bloodless bookkeeping with no sensation in it, or when you already said this today." ..
                 STYLE[lang])
+            end
             if text and text ~= "" and not text:upper():match("^NOTHING") then
                 if send(chat_id, text) then
                     speak(text)
@@ -1812,6 +1904,11 @@ local function main()
                     st.recent_subjects = st.recent_subjects or {}
                     table.insert(st.recent_subjects, 1, utf8_trunc((text:gsub("\n", " ")), 60))
                     while #st.recent_subjects > 6 do table.remove(st.recent_subjects) end
+                    if chosen.key == "welcome_owner" then
+                        st.recent_greetings = st.recent_greetings or {}
+                        table.insert(st.recent_greetings, 1, utf8_trunc((text:gsub("\n", " ")), 90))
+                        while #st.recent_greetings > 8 do table.remove(st.recent_greetings) end
+                    end
                     log("spoke (%s/%s/%s): %s", chosen.kind, chosen.shape, chosen.key,
                         utf8_trunc((text:gsub("\n", " ")), 160))
                 end

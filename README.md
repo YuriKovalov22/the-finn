@@ -107,6 +107,16 @@ when that server dies. `FINN_WATCH` maps names to hosts or URLs; a target has to
 checks before he calls it down, and an outage is the single thing allowed past quiet hours and
 the daily budget, because being woken at 3am is the whole point of it.
 
+When an unusual port appears he names what it is from a built-in dictionary (STUN for a call
+punching through, mDNS, Apple/Google push, Dropbox sync, VPN, torrent, and so on) rather than
+guessing; an unknown port he honestly calls one he does not recognise.
+
+When you walk back into the office after an hour or more away — your phone rejoining the wifi —
+he greets you, and the greeting is different every time: consecutive welcomes step through a
+rotating list of angles (pirate, underground hacker, a submarine surfacing, a smuggler at the
+docks) so two in a row are never the same joke. It bypasses the daily budget and speaking gap,
+within waking hours, because a greeting you have to wait an hour for is not a greeting.
+
 Stillness is itself an observation: after some hours in which nothing has left its range, he is
 handed that fact rather than staying mute, because a resident would remark on a quiet evening.
 
@@ -134,7 +144,7 @@ quiet.
 | how much each device is pulling and sending | conntrack byte counters, when they can be trusted (see below) |
 | how long each machine has been here, and since it last stirred | tracked between ticks |
 | how many devices the upstream network has, and which are new | neighbour table on that interface |
-| what the network talks to, and on what ports | conntrack, common ports filtered out |
+| what the network talks to, and on what ports, named | conntrack + a port→service dictionary |
 | link health, latency and loss to the gateway | `dmesg`, `ping` |
 | throughput both ways | `/proc/net/dev` deltas |
 | whether a tunnel is alive, and who is on his VPN | `wg show` |
