@@ -140,6 +140,7 @@ quiet.
 | who they are | `/tmp/dhcp.leases`, by hostname, so MAC rotation does not break it |
 | which of them are furniture rather than strangers | `FINN_KNOWN_HOSTS`, hostname to plain name |
 | which of them are people you know | `FINN_PEOPLE`, hostname to a person's name |
+| which are your own fixtures (printer, Pi, NAS) | `FINN_KNOWN_HOSTS`, so they never read as strangers |
 | whether a machine is in use or asleep | per-device flow churn in `/proc/net/nf_conntrack` |
 | how much each device is pulling and sending | conntrack byte counters, when they can be trusted (see below) |
 | how long each machine has been here, and since it last stirred | tracked between ticks |

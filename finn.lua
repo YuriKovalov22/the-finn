@@ -739,7 +739,7 @@ end
 local FLOOR = {
     desk_churn = 5, phone_churn = 5, laptop_churn = 5, gw_latency_ms = 3,
     wan_rx_kbps = 400, wan_tx_kbps = 400, conn_total = 25, conn_remotes = 15,
-    building_devices = 4, office_clients = 1, office_others = 1, load1 = 0.8,
+    building_devices = 4, office_others = 1, load1 = 0.8,
     desk_down_kbps = 2000, phone_down_kbps = 2000, laptop_down_kbps = 2000,
     desk_up_kbps = 1000, phone_up_kbps = 1000, laptop_up_kbps = 1000,
     desk_local_kbps = 2000, phone_local_kbps = 2000, laptop_local_kbps = 2000,
@@ -944,10 +944,13 @@ end
 
 
 -- generic: anything outside the range this sensor has held recently
+-- counters that stay as context but never trigger a remark on their own
+local NO_ANOMALY = { office_clients = true }
+
 local function find_anomalies(st, vol, s)
     local out = {}
     for key, v in pairs(s.n) do
-        if type(v) == "number" then
+        if type(v) == "number" and not NO_ANOMALY[key] then
             local h = vol.hist and vol.hist[key]
             local floor = FLOOR[key] or 1
             if h and #h >= WARMUP then
@@ -1026,7 +1029,7 @@ local function find_anomalies(st, vol, s)
     -- 45 minute band cannot tell the difference. These two sensors get a profile per hour.
     st.hourly = st.hourly or {}
     local hour = os.date("%H")
-    for _, key in ipairs({ "building_devices", "office_clients" }) do
+    for _, key in ipairs({ "building_devices" }) do
         local v = s.n[key]
         if v then
             st.hourly[key] = st.hourly[key] or {}
