@@ -392,13 +392,17 @@ local function sense(vol)
                 if p then
                     local name = "your " .. (role == "desk" and "desktop" or role)
                     -- the owner's phone coming back after an hour or more IS his arrival: greet him
-                    if role == "phone" and here and (was_for or 0) >= 60 then
-                        s.events[#s.events + 1] = {
-                            key = "welcome_owner", shape = "arrival", kind = "people",
-                            away_min = was_for,
-                            text = string.format("The owner just walked in: his phone rejoined the office " ..
-                                "wifi after %s away.", human_dur(was_for)),
-                        }
+                    if role == "phone" then
+                        -- the phone speaks only as the arrival greeting after a real (>=1h) absence;
+                        -- brief in-and-out and its departures are noise, handled by nothing
+                        if here and (was_for or 0) >= 60 then
+                            s.events[#s.events + 1] = {
+                                key = "welcome_owner", shape = "arrival", kind = "people",
+                                away_min = was_for,
+                                text = string.format("The owner just walked in: his phone rejoined the " ..
+                                    "office wifi after %s away.", human_dur(was_for)),
+                            }
+                        end
                     else
                         s.events[#s.events + 1] = {
                             key = "presence_" .. role,
@@ -493,7 +497,19 @@ local function sense(vol)
         end
     end
     s.t.people_here = (#present_names > 0) and table.concat(present_names, ", ") or nil
-    s.sets.office_macs = keys(assoc)
+
+    -- office_macs drives the "a device appeared/left" remark. Restrict it to devices we do NOT
+    -- already know: the owner's own machines (roles), named people and named furniture are
+    -- handled by presence/welcome, so leaving them in here produced a second, half-greeting
+    -- remark ("say hello to yourself") every time the phone flickered. Strangers only.
+    local known_mac = {}
+    for _, l in pairs(roles) do if l then known_mac[l.mac] = true end end
+    for _, l in ipairs(ls) do
+        if people[l.host:lower()] or labels[l.host:lower()] then known_mac[l.mac] = true end
+    end
+    local strangers = {}
+    for mac in pairs(assoc) do if not known_mac[mac] then strangers[#strangers + 1] = mac end end
+    s.sets.office_macs = strangers
 
     -- The wider network this router hangs off, seen through whichever interface faces it.
     -- Optional: with no such interface there is simply no world beyond the wall.
