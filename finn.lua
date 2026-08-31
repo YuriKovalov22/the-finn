@@ -864,9 +864,9 @@ end
 
 ----------------------------------------------------------------- fleet watchdog
 
--- The router is the only vantage point outside the Hetzner blast radius. If the box that
+-- The router is the only vantage point outside your server's blast radius. If the box that
 -- runs the whole fleet dies, or the office loses the internet, this is what still notices.
--- FINN_WATCH = "Hetzner=94.130.65.87, CRM=https://crm.pflb.us, site=https://pflb.us"
+-- FINN_WATCH = "server=203.0.113.10, app=https://app.example.com, site=https://example.com"
 --   host or url; a bare host is pinged, an http(s) url is fetched for a 2xx/3xx.
 -- Down/up transitions are events; a target must miss FINN_WATCH_FAILS checks before it is
 -- called down, so one dropped packet is not an outage.
@@ -880,6 +880,18 @@ local function watch_targets()
 end
 
 local function probe(addr)
+    -- proxy:<url> checks an egress path end to end rather than a host: he fetches through
+    -- that proxy and needs a real address back. Set FINN_EGRESS_IS and the address has to be
+    -- that one too, so "the door is open" is not mistaken for "it is the right door" -- the
+    -- proxy answering from an unexpected address means the line it fronts has moved.
+    local px = addr:match("^proxy:(.+)$")
+    if px then
+        local out = sh("curl -s -m 10 -x '" .. px .. "' https://1.1.1.1/cdn-cgi/trace 2>/dev/null")
+        local ip = out:match("ip=([%d%.]+)")
+        if not ip then return false end
+        local want = env("FINN_EGRESS_IS")
+        return not want or want == "" or ip == want
+    end
     if addr:match("^https?://") then
         local code = trim(sh("curl -s -o /dev/null -m 8 -w '%{http_code}' " ..
                              "'" .. addr .. "' 2>/dev/null"))
