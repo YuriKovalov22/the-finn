@@ -232,9 +232,11 @@ Plug a class-compliant USB speaker into the router and he can be heard as well a
 
 - `beep`, the default and the one worth having: a short two-tone pip when he posts, so you look
   at your phone. `sounds/finn-blip.wav` in this repo, copy it to `/root/bell/finn.wav`.
-- `speak`, which sends the remark to OpenAI speech synthesis and plays it through the speaker,
-  in a gruff old-sailor voice. Requires `FINN_OPENAI_KEY` even when the words come from
-  Anthropic. Delightful for about a day, then you will switch it to `beep`; ask me how I know.
+- `speak`, which sends the remark to OpenAI speech synthesis (`FINN_TTS_VOICE`, default echo)
+  and plays it through the speaker. Requires `FINN_OPENAI_KEY` even when the words come from
+  Anthropic. Volume is `FINN_VOLUME` — but note many cheap USB DACs ignore the ALSA PCM
+  control entirely (they report a level and play at full), so real attenuation is done by an
+  ALSA softvol device; copy `asound.conf` to `/etc/asound.conf` and playback targets it.
 - `off`.
 
 Either way it only makes noise between `FINN_VOICE_FROM` and `FINN_VOICE_TO`, 9 to 19 by

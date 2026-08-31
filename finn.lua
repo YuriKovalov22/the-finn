@@ -1327,7 +1327,10 @@ local function think(prompt)
         headers = { 'header = "x-api-key: ' .. key .. '"',
                     'header = "anthropic-version: 2023-06-01"' }
         payload = {
-            model = model, max_tokens = 300, system = system_prompt(),
+            model = model, max_tokens = 400, system = system_prompt(),
+            -- this model does extended thinking by default, which eats the whole token budget
+            -- and leaves no text block; he needs a quick line, not deliberation
+            thinking = { type = "disabled" },
             messages = { { role = "user", content = prompt } },
         }
     end
@@ -1353,7 +1356,15 @@ local function think(prompt)
         text = res.choices and res.choices[1] and res.choices[1].message
                and res.choices[1].message.content
     else
-        text = res.content and res.content[1] and res.content[1].text
+        -- the model can return a leading "thinking" block before the text one, so find the
+        -- text block rather than assuming it is first (a wrong assumption reads as empty)
+        if res.content then
+            for _, blk in ipairs(res.content) do
+                if blk.type == "text" and blk.text and trim(blk.text) ~= "" then
+                    text = blk.text; break
+                end
+            end
+        end
     end
     if not text or trim(text) == "" then
         log("%s returned nothing usable", provider); return nil
@@ -1390,8 +1401,14 @@ end
 
 local function speak(text)
     if not voice_allowed() then return end
+    -- This USB DAC's own PCM control is cosmetic: it reports a level and ignores it, always
+    -- playing at full. Real attenuation is done in software by an ALSA softvol device
+    -- (/etc/asound.conf "finnvol"), set from FINN_VOLUME, so aplay must target that device.
+    local vol = env("FINN_VOLUME") or "55"
+    sh("amixer -c 0 sset FinnVol " .. vol .. "% >/dev/null 2>&1")
+    local dev = "-D finnvol"
     if voice_mode() ~= "speak" then
-        sh("aplay -q /root/bell/finn.wav")   -- just a pip, so you know to look at your phone
+        sh("aplay " .. dev .. " -q /root/bell/finn.wav")   -- just a pip
         return
     end
     local key = env("FINN_OPENAI_KEY")
@@ -1421,7 +1438,7 @@ local function speak(text)
     local size = f and #(f:read(64) or "") or 0
     if f then f:close() end
     if size < 40 then log("tts produced nothing playable"); return end
-    sh("aplay -q /tmp/finn-tts.wav")
+    sh("aplay " .. dev .. " -q /tmp/finn-tts.wav")
 end
 
 
