@@ -374,14 +374,29 @@ local function sense(vol)
             -- racing each other can leave a fresh byte count beside a stale timestamp. Only
             -- report throughput when the window looks like a real minute.
             local secs = tnow - (vol.flows_at or tnow)
-            local here = assoc[l.mac] ~= nil
+            -- Wi-Fi association flaps: a phone in a pocket drops off assoclist for a minute at
+            -- a time (power save, roaming) while its owner is right there, and briefly appears
+            -- while its owner is far away. Judging presence on a single instant makes the
+            -- away-timer meaningless. Debounce: remember when we last actually saw it, and call
+            -- it present if that was recent, gone only after a few silent minutes.
+            local GONE_AFTER = tonumber(env("FINN_PRESENCE_GONE_S") or "300")
+            vol.last_seen = vol.last_seen or {}
+            vol.raw_streak = vol.raw_streak or {}
+            local raw_here = assoc[l.mac] ~= nil
+            -- a single-tick blip while the owner is far away should not count as arrival, so
+            -- an appearance must persist two ticks before it updates the "last seen" clock
+            vol.raw_streak[role] = raw_here and ((vol.raw_streak[role] or 0) + 1) or 0
+            if raw_here and vol.raw_streak[role] >= 2 then vol.last_seen[role] = tnow end
+            if raw_here and not vol.last_seen[role] then vol.last_seen[role] = tnow end
+            local seen_ago = vol.last_seen[role] and (tnow - vol.last_seen[role]) or 1e9
+            local here = seen_ago < GONE_AFTER
             s.n[role .. "_churn"] = fresh
             if vol.flows_at and secs >= 20 and secs <= 600 then
                 s.n[role .. "_down_kbps"]  = round(down_d * 8 / 1000 / secs, 1)
                 s.n[role .. "_up_kbps"]    = round(up_d   * 8 / 1000 / secs, 1)
                 s.n[role .. "_local_kbps"] = round((down_l + up_l) * 8 / 1000 / secs, 1)
             end
-            if here then s.n[role .. "_rssi"] = assoc[l.mac] end
+            if raw_here then s.n[role .. "_rssi"] = assoc[l.mac] end
             s.t[role .. "_here"] = here
             -- how long it has been in its current state, so he never has to guess at duration
             local p = vol.presence[role]
