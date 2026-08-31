@@ -151,8 +151,8 @@ end
 local function value(key, v)
     if key:match("_kbps$") then return rate(v) end
     if key == "temp_c" then return string.format("%.1f C", v) end
-    if key:match("_rssi$") then return string.format("%d dBm", v) end
-    if key == "tunnel_age_s" then return string.format("%d s", v) end
+    if key:match("_rssi$") then return string.format("%d dBm", math.floor(v)) end
+    if key == "tunnel_age_s" then return string.format("%d s", math.floor(v)) end
     return tostring(round(v, 1))
 end
 
@@ -1459,7 +1459,7 @@ local function render(s)
     out[#out+1] = string.format("- of those, %d are the cloud agents browsing out through your " ..
         "tunnel; the rest are this office's own devices", s.n.agent_conns or 0)
     if s.n.tunnel_age_s then
-        out[#out+1] = string.format("- the tunnel home last spoke %d seconds ago", s.n.tunnel_age_s)
+        out[#out+1] = string.format("- the tunnel home last spoke %d seconds ago", math.floor(s.n.tunnel_age_s))
     end
     if s.n.vpn_peers_up then
         out[#out+1] = string.format("- %d live peers on this router's own VPN", s.n.vpn_peers_up)
