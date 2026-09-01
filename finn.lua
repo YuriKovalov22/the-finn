@@ -1599,19 +1599,32 @@ local function is_up(m)
     return sh("ping -c1 -W1 " .. m.ip .. " >/dev/null 2>&1 && echo up"):match("up") ~= nil
 end
 
--- Ping is not wakefulness: a Mac asleep on wifi answers ping from its wifi chip while the
--- screen stays dark. The honest test is asking the machine itself whether its display is on,
--- which needs ssh. Returns true (awake), false (asleep), or nil (cannot tell).
+-- Ping is not wakefulness, and neither is ssh answering: a sleeping Mac on wifi does both
+-- from its wifi chip while the screen stays dark. That is a dark wake, and any stray packet
+-- on the network causes one within seconds.
+--
+-- This used to read IODisplayWrangler, which does not exist on Apple Silicon at all -- it is
+-- an Intel-era node, so on such a machine the check could only ever answer "cannot tell" and
+-- the useful branches below were unreachable. The power log is the honest source and reads
+-- the same on both architectures: its last event is either a full Wake, or a Sleep or a
+-- DarkWake. No events at all means the machine has simply been up since boot.
+--
+-- Known limit, stated rather than hidden: the log records SYSTEM sleep, not display sleep.
+-- A Mac whose screen has merely timed out still reads as awake here, which is correct for
+-- the question /wake asks ("did it come up?") and imprecise for "is the screen lit". Apple
+-- Silicon exposes no clean current-state answer to the latter: AppleCLCD2 CurrentPowerState
+-- stays at 1 with the backlight off -- verified against the physical screen on 01.09.
+-- Returns true (awake), false (asleep or dark), or nil (cannot tell).
 local function is_awake(m)
     if not (m.ip and m.user) then return nil end
-    -- IODisplayWrangler DevicePowerState is 4 when the panel is on, <4 when asleep
-    local out = sh(string.format(
-        "timeout 10 ssh -T -y -i /root/.ssh/id_mac -o BatchMode=yes %s@%s " ..
-        "%q 2>/dev/null", m.user, m.ip,
-        "ioreg -n IODisplayWrangler -r | awk -F'=' '/DevicePowerState/{print $2; exit}'"))
-    local n = tonumber((out or ""):match("%d+"))
-    if n == nil then return nil end
-    return n >= 4
+    local ok, out = mac_ssh(m,
+        "pmset -g log | awk '$4 ~ /^(Sleep|DarkWake|Wake)$/ {last=$4} END {print last}'")
+    if not ok or not out then return nil end
+    local last = out:match("(%a+)%s*$")
+    if last == "Wake" then return true end
+    if last == "DarkWake" or last == "Sleep" then return false end
+    if out:match("^%s*$") then return true end   -- never slept since boot
+    return nil
 end
 
 ----------------------------------------------------------------- bot commands
@@ -1686,9 +1699,10 @@ local function handle_command(st, text)
             if after == true and before == false then return m.name .. " проснулся, экран включился." end
             if after == true then return m.name .. " уже не спал." end
             if after == false then
-                return m.name .. ": магический пакет ушёл, но машина осталась спать. " ..
-                       "Так и есть с Mac по Wi-Fi: чип отвечает на сеть, но экран не будится " ..
-                       "без кабеля или Sleep Proxy. По проводу заработает."
+                return m.name .. ": магический пакет ушёл, машина его услышала, но осталась " ..
+                       "спать. Проверено замером 01.09 на пяти циклах сна: по Wi-Fi чип " ..
+                       "поднимается только в тёмное пробуждение, до экрана дело не доходит. " ..
+                       "Помогут кабель или Bonjour Sleep Proxy (Apple TV, HomePod), больше ничего."
             end
             -- no ssh: fall back to the honest-but-weak ping test, and say it is weak
             local up = is_up(m)
