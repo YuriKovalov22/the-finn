@@ -53,7 +53,8 @@ log had cut them.
 > Ten straight days on my feet and not a single ache out of the ordinary, that's the strange
 > part tonight.
 
-`tick.sh said` prints your own router's collected works.
+`tick.sh said` prints your own router's collected works. Post the best of them in
+[What did your Finn say today?](https://github.com/YuriKovalov22/the-finn/discussions/2)
 
 ## Quick start
 
@@ -396,7 +397,10 @@ The sensors are Linux and OpenWrt shaped: `iwinfo`, `/tmp/dhcp.leases`, `/proc/n
 | MikroTik RouterOS | no, not as is | no Lua, no cron shell. The honest route is a container on RouterOS 7 and RouterOS's API for the senses; that is a port, not a config change |
 | OPNsense / pfSense | no, not as is | BSD: no `/proc/net/nf_conntrack`, no `iwinfo`. Doable with `pfctl` and `ifconfig`, again a port |
 
-If you get him talking somewhere not on this list, open an issue and say what you changed.
+Questions about a router not on this list go to
+[Ports and hardware](https://github.com/YuriKovalov22/the-finn/discussions/3); results go to
+[issue #1](https://github.com/YuriKovalov22/the-finn/issues/1). If you get him talking
+somewhere new, say what you changed and you get the row here.
 The sensing is one function per sense, so a port is a matter of swapping those, not of
 rewriting him.
 
