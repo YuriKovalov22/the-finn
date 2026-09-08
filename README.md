@@ -135,7 +135,8 @@ holds him well, say which in an issue.
 
 ## How he decides to speak
 
-There is no list of interesting events, which is the part worth stealing. Every minute the box
+There is no list of interesting events, which is the part worth stealing. The long version,
+with what went wrong on the way, is in [docs/how-he-decides-what-to-say.md](docs/how-he-decides-what-to-say.md). Every minute the box
 takes a wide reading of itself and the room, keeps a rolling history of every reading in RAM,
 and looks for anything that has fallen outside its own recent range. Whatever is unusual
 *today* is what he talks about, so he does not become the same five notifications forever.
