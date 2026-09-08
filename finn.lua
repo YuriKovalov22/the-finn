@@ -1929,8 +1929,7 @@ local function main()
                         st[ck] = (st[ck] or 0) + 1
                         local reply = think("The person you belong to just messaged you. Their message:\n\n" .. text ..
                             "\n\nWhat this router witnesses right now:\n" .. render(s) ..
-                            "\n\nAnswer him in character." ..
-                            (text:match("[\208\209]") and STYLE.Russian or STYLE.English))
+                            "\n\nAnswer him in character." .. STYLE)
                         if reply then send(chat_id, reply) end
                     end
                 end
