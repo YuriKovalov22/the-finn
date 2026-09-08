@@ -1940,7 +1940,11 @@ local function main()
     local today = os.date("%Y-%m-%d")
     if st.day ~= today then
         st.day, st.spoke_today, st.calls_today = today, 0, 0
-        st.nominated, st.msg_remarks, st.bsky_fails = nil, nil, nil
+        -- a thumb outlives the day it was given on: the post it was meant for may already
+        -- have gone out, and a signal from the owner is not something to drop at midnight.
+        -- It is cleared when it is used. Message ids are kept for the same reason, and
+        -- they trim themselves to the last dozen anyway.
+        st.bsky_fails = nil
         st.test_spoke, st.test_calls = 0, 0
     end
     st.mode = st.mode or DEFAULT_MODE
@@ -2055,6 +2059,11 @@ local function main()
                         if said then
                             st.nominated = said
                             log("nominated: %s", utf8_trunc(said, 100))
+                        else
+                            -- worth saying out loud: a thumb that arrived is a working
+                            -- pipe, and only the remark behind it is missing
+                            log("thumb on message %s, which I no longer have the words for",
+                                tostring(re.message_id))
                         end
                     end
                 end
