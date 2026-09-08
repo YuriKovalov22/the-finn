@@ -1951,6 +1951,7 @@ local function main()
             print(text)
             if chat_id then send(chat_id, text) else print("(no chat_id yet, not delivered)") end
             speak(text)
+            remember_said("say", text)
         end
         save_state(st); save_vol(vol)
         return
