@@ -11,6 +11,8 @@ It is deliberately not an assistant. No tools, no memory beyond a state file, no
 your mail or calendar or tickets, and nothing to be helpful with. It has a view of one
 hallway and an opinion about it.
 
+https://github.com/user-attachments/assets/1a2ea4b4-33c7-4f07-93e6-b644f8d201d0
+
 > Six failed SSH logins in the last minute, usually it's zero all night. Bloody hell, some
 > tosser out there fancies his chances.
 
