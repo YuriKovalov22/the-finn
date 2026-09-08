@@ -1359,7 +1359,9 @@ local function think(prompt)
         timeout = tonumber(env("FINN_LOCAL_TIMEOUT") or "") or 180
         payload = {
             model = model,
-            max_tokens = 800,
+            -- a reasoning model that ignores the switches below thinks first, and the
+            -- thinking is billed against this; 800 was eaten whole by qwen3 on Ollama
+            max_tokens = 2500,
             temperature = 0.8,
             -- reasoning models answer a one-line grumble with a page of deliberation first;
             -- both switches are ignored by servers that do not know them
@@ -1405,6 +1407,11 @@ local function think(prompt)
                and res.choices[1].message.content
         -- a local reasoning model that ignored the switch still wraps its thinking in tags
         if text then text = text:gsub("<think>.-</think>%s*", "") end
+        local msg = res.choices and res.choices[1] and res.choices[1].message
+        if provider == "local" and (not text or trim(text) == "") and msg and msg.reasoning then
+            log("local: the model spent its whole budget thinking and said nothing; "
+                .. "pick a model that obeys think=false, or a non-reasoning one")
+        end
     else
         -- the model can return a leading "thinking" block before the text one, so find the
         -- text block rather than assuming it is first (a wrong assumption reads as empty)

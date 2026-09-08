@@ -128,10 +128,13 @@ Audition the model before trusting it with his voice:
 
 That asks the brain in character and prints the answer, nothing posted. The bar is the one
 in [Tuning](#tuning): the fact first, an image that means something, no narrating its own
-plumbing. Expect small models to fail it: Haiku could not hold the voice, it answered about
-the wrong machine and let the metaphor swallow the fact, and a 3B local model will not do
-better. Around 8B is where it becomes worth trying. Try a few, they are free, and if one
-holds him well, say which in an issue.
+plumbing. Expect small models to fail it. Haiku could not hold the voice: it answered about
+the wrong machine and let the metaphor swallow the fact. `qwen3:8b` on a 16 GB Apple Silicon
+iMac, through Ollama, holds the shape (fact first, then the flinch) and answers in 20 to 45
+seconds, but it invents a second fact to go with the first, a temperature or a weak signal
+he was never given, which is the worse failure for a thing bolted to a wall. It also thinks
+before answering even when told not to, so the budget is set with room for that. Try a few,
+they are free, and if one holds him without inventing, say which in an issue.
 
 ## How he decides to speak
 
