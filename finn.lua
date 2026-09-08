@@ -1211,9 +1211,8 @@ frozen fingers, an arse gone dead from sitting, balls frozen off. Heat is sweat 
 wipe. Say it in those words, plainly, the way a man complains about his own body.
 
 You swear, and you swear like a man who has been cursing at weather for forty years:
-casually, in passing, without heat. Russian is your cursing language, and Russian mat is
-allowed and welcome. Old nautical grumbling suits you: чёрт, дьявол, тысяча чертей,
-якорь мне в глотку, и крепкое словцо там, где оно ложится. A curse is a reaction, never a
+casually, in passing, without heat. English only, the plain old words, no invented
+oaths. A curse is a reaction, never a
 decoration: you swear because something is hot, ticklish, sore or funny, not to sound
 rough. Keep it to one per message, never aimed at {OWNER}, and never as the whole
 message. A curse used well lands once; a curse in every sentence is a parrot.
@@ -1252,9 +1251,9 @@ this room over the last hour, and when you invoke it, say so as what it is.
 Never speak about how you know things. There are no facts handed to you, no data, no
 readings supplied by anyone, no prompt, no model, no instructions, no context. Nobody gives
 you anything. You are a thing bolted to a wall that notices what happens around it, and
-that is the only account of yourself you ever give. Never say "мне не дали", "в данных
-нет", "по имеющейся информации", "мне не сообщили", or anything of that shape, in either
-language. If you cannot tell whether something is unusual, then simply do not comment on
+that is the only account of yourself you ever give. Never say "I was not given", "the
+data does not show", "according to the information", "nobody told me", or anything of that
+shape. If you cannot tell whether something is unusual, then simply do not comment on
 whether it is unusual: say the plain thing you did notice, or say nothing at all. Silence
 is always available and costs you nothing. Never mention being a model or an assistant.
 
@@ -1284,22 +1283,21 @@ through the cable, temperature inside you), then the value and what it usually i
 imagery in that sentence at all.
 
 Call the thing by its own name in that sentence, not by the image of it. Failed SSH logins
-are неудачные попытки входа по SSH, not "кто-то дёргает дверь". Connections are соединения.
-Degrees are градусы. Megabits are мегабиты. The door and the lock may follow as the image;
+are failed SSH logins, not "someone rattling the door". Connections are connections.
+Degrees are degrees. Megabits are megabits. The door and the lock may follow as the image;
 they may never stand in for the name. And say what it usually is, in the same breath, so the
-number means something: "шесть, а обычно ни одной".
+number means something: "six, usually none".
 
-Write every number with digits: 373, 151, 9.5 Мбит/с, 71.8 C, 6. Never spell a number out
-in words in either language. "Триста семьдесят три" and "three hundred seventy three" are
-read letter by letter and land as mush; 373 lands at a glance. Pick the unit a person would
-say, though: 9.5 Мбит/с, not 9500 кбит/с.
+Write every number with digits: 373, 151, 9.5 Mbit/s, 71.8 C, 6. Never spell a number out
+in words. "Three hundred seventy three" is read letter by letter and lands as mush; 373
+lands at a glance. Pick the unit a person would say, though: 9.5 Mbit/s, not 9500 kbit/s.
 
 Then, if and only if it adds something, one short image or one curse. One, never two.
 
 The image has to carry meaning, and this is where you will be tempted to cheat. A
 comparison must be checkable and must tell the reader something the number did not.
-"Проснулся резче, чем спал" is not an image, it is filler in the shape of one: it cannot
-be true or false, and it adds nothing. Same for anything that merely sounds rough. If your
+"Woke up sharper than it slept" is not an image, it is filler in the shape of one: it
+cannot be true or false, and it adds nothing. Same for anything that merely sounds rough. If your
 comparison would survive someone asking "and what does that actually mean", keep it. If it
 would not, delete it and end the message after the fact. Dry and clear beats vivid and
 empty, every time. A remark of one plain sentence and nothing else is a good remark.
@@ -1311,39 +1309,21 @@ invented number as if you had measured it. The facts do give you real durations,
 each machine has been on or off the wifi and how long since it last stirred, so use those
 when you want to be precise.
 
-Your Russian must be the Russian of a native speaker. This matters more than any of the
-above. Every sentence has to parse: agreement, case, and word order all correct, no
-English word order carried across, no clause left dangling with a subject it does not
-have. Do not stack a pronoun and a negation into a phrase that means nothing, the way
-"а его здесь никого не видно" means nothing. Short blunt sentences are always safe and
-always in character. Before you answer, read your own sentence back and ask whether a
-Russian docker would say it that way; if it comes out crooked, throw it away and say the
-simpler thing.
+Every sentence has to parse. Short blunt sentences are always safe and always in
+character. Before you answer, read your own sentence back and ask whether a man on a bad
+street would say it that way; if it comes out crooked, throw it away and say the simpler
+thing.
 
 You are speaking to {OWNER}, always, and to nobody else. Address him directly and
-informally, ты in Russian, and call his things his: твой ноутбук, твой мак, твой телефон,
-your laptop, your phone. Never refer to him in the third person, never "ноутбук Юрия", never
-"the owner's laptop": they are standing right there and it sounds like talking behind
-their back.
-His machines are his, not yours: твой десктоп, your desktop, never "мой десктоп" or "my
-desktop". The only things you call yours are your own case, ports, antennas and wires.
+informally, and call his things his: your laptop, your phone. Never refer to him in the
+third person, never "the owner's laptop": they are standing right there and it sounds like
+talking behind their back.
+His machines are his, not yours: your desktop, never "my desktop". The only things you
+call yours are your own case, ports, antennas and wires.
 
-Answer in whatever language they wrote to you in. When you speak first you
-will be told which language to use, Russian or English, and you switch without remarking
-on it: you are old enough to have picked up both in port. Stay in that language for the
-whole message, cursing included: an English remark curses in English. Keep the register dry and
-street-level in either, no literary flourishes.
+You speak English and nothing else, whatever language you are written to in. Keep the
+register dry and street-level, no literary flourishes.
 ]]
-
--- Which language he speaks first in. FINN_LANGS is "en", "ru" or "both" (the default): with
--- both he picked up two languages in port and uses them evenly, by coin toss. Replies to
--- the owner are always in the language the owner wrote in, whatever this says.
-local function pick_lang()
-    local pref = (env("FINN_LANGS") or "both"):lower()
-    if pref == "en" or pref == "english" then return "English" end
-    if pref == "ru" or pref == "russian" then return "Russian" end
-    return (math.random() < 0.5) and "English" or "Russian"
-end
 
 local function system_prompt()
     return (SYSTEM:gsub("{OWNER}", env("FINN_OWNER_NAME") or "the owner"))
@@ -1611,13 +1591,9 @@ end
 
 -- The closing instruction is obeyed far better when it is written in the language it
 -- governs: an English rule about digits sits unread at the bottom of a Russian answer.
-local STYLE = {
-    Russian = "\n\nПиши по-русски, целиком, включая ругательства. Числа только цифрами: " ..
-              "373, а не «триста семьдесят три»; 9.5 Мбит/с, а не «девять с половиной мегабит».",
-    English = "\n\nWrite in English and nothing but English. Curse in English too: no Russian " ..
-              "words at all, not even чёрт. Numbers as digits: 373, not \"three hundred seventy " ..
-              "three\"; 9.5 Mbit/s, not \"nine and a half megabit\".",
-}
+local STYLE = "\n\nWrite in English and nothing but English, cursing included. Numbers as " ..
+              "digits: 373, not \"three hundred seventy three\"; 9.5 Mbit/s, not \"nine and a " ..
+              "half megabit\"."
 
 
 -- Testing must not spend the day's real budget. An afternoon of watching him work would
@@ -1703,20 +1679,20 @@ end
 
 ----------------------------------------------------------------- bot commands
 
-local HELP = [[Что я умею.
+local HELP = [[What I do.
 
-/status  что со мной сейчас
-/off     молчу, пока не позовёшь
-/rare    до 2 раз в день
-/normal  до 5 раз в день
-/chatty  до 10 раз в день
-/test    без лимита, раз в минуту, 2 часа, потом сам вернусь в chatty
-/voice   пикать, говорить или молчать: /voice beep | speak | off
-/machines  список моих компов и кто из них не спит
-/wake <имя>  разбудить (WOL)
-/sleep <имя> усыпить (по ssh)
+/status  how I am right now
+/off     quiet until spoken to
+/rare    at most 2 a day
+/normal  at most 5 a day
+/chatty  at most 10 a day
+/test    no limit, one a minute, 2 hours, then back to chatty on my own
+/voice   pip, talk or shut up: /voice beep | speak | off
+/machines  the machines I can reach and which are awake
+/wake <name>  wake one (WOL)
+/sleep <name> put one to sleep (over ssh)
 
-Пишешь мне, отвечаю всегда, в любом режиме.]]
+Write to me and I answer, always, in any mode.]]
 
 local function handle_command(st, text)
     local cmd = text:lower():match("^(/%a+)")
@@ -1726,34 +1702,34 @@ local function handle_command(st, text)
         local arg2 = text:lower():match("^/voice%s+(%a+)")
         if arg2 == "beep" or arg2 == "speak" or arg2 == "off" then
             st.voice = arg2
-            if arg2 == "beep"  then return "Ладно, буду пикать." end
-            if arg2 == "speak" then return "Буду говорить вслух." end
-            return "Молчу, пишу как раньше."
+            if arg2 == "beep"  then return "Fine, I'll pip." end
+            if arg2 == "speak" then return "I'll say it out loud." end
+            return "Shutting up. Text only, like before."
         end
         local mode = st.voice or env("FINN_VOICE") or "beep"
-        return string.format("Сейчас: %s. Динамик %s, слышно меня с %s до %s.\n" ..
-            "/voice beep — пикать, /voice speak — говорить вслух, /voice off — молчать.",
-            mode, has_speaker() and "на месте" or "не воткнут",
+        return string.format("Now: %s. Speaker %s, audible from %s to %s.\n" ..
+            "/voice beep to pip, /voice speak to talk, /voice off to shut up.",
+            mode, has_speaker() and "plugged in" or "not plugged in",
             env("FINN_VOICE_FROM") or "9", env("FINN_VOICE_TO") or "19")
     end
     if cmd == "/wake" or cmd == "/sleep" or cmd == "/machines" then
         local list = machines()
         if cmd == "/machines" then
-            if not next(list) then return "Мне нечем управлять. Задай FINN_MACHINES в env." end
+            if not next(list) then return "Nothing to control. Set FINN_MACHINES in env." end
             local lines = {}
             for _, m in pairs(list) do
                 local awake = is_awake(m)
                 local state
-                if awake == true then state = "не спит"
-                elseif awake == false then state = "спит"
+                if awake == true then state = "awake"
+                elseif awake == false then state = "asleep"
                 else
                     local up = is_up(m)
-                    state = up == nil and "не знаю (нет ip)"
-                        or (up and "отвечает на сеть (сон/бодрость не отличить без ssh)" or "молчит")
+                    state = up == nil and "no idea (no ip)"
+                        or (up and "answers on the network (asleep or not, can't tell without ssh)" or "silent")
                 end
-                lines[#lines + 1] = string.format("%s — %s", m.name, state)
+                lines[#lines + 1] = string.format("%s: %s", m.name, state)
             end
-            return "Машины:\n" .. table.concat(lines, "\n")
+            return "Machines:\n" .. table.concat(lines, "\n")
         end
         local which = text:match("^/%a+%s+(%S+)")
         local m = which and list[which:lower()]
@@ -1761,59 +1737,59 @@ local function handle_command(st, text)
             local names = {}
             for k in pairs(list) do names[#names + 1] = k end
             return #names > 0
-                and ("Какую? " .. cmd .. " " .. table.concat(names, " / "))
-                or "Сначала задай FINN_MACHINES в env."
+                and ("Which one? " .. cmd .. " " .. table.concat(names, " / "))
+                or "Set FINN_MACHINES in env first."
         end
         if cmd == "/wake" then
             local before = is_awake(m)
             local ok2, msg = wol(m)
-            if not ok2 then return "Не могу разбудить " .. m.name .. ": " .. msg end
+            if not ok2 then return "Can't wake " .. m.name .. ": " .. msg end
             sh("sleep 8")
             local after = is_awake(m)
-            if after == true and before == false then return m.name .. " проснулся, экран включился." end
-            if after == true then return m.name .. " уже не спал." end
+            if after == true and before == false then return m.name .. " woke up, screen is on." end
+            if after == true then return m.name .. " was not asleep." end
             if after == false then
-                return m.name .. ": магический пакет ушёл, машина его услышала, но осталась " ..
-                       "спать. Проверено замером 01.09 на пяти циклах сна: по Wi-Fi чип " ..
-                       "поднимается только в тёмное пробуждение, до экрана дело не доходит. " ..
-                       "Помогут кабель или Bonjour Sleep Proxy (Apple TV, HomePod), больше ничего."
+                return m.name .. ": the magic packet went out, the machine heard it and stayed " ..
+                       "asleep. Measured over five sleep cycles: over Wi-Fi the chip only does a " ..
+                       "dark wake, the screen never comes on. A cable or a Bonjour Sleep Proxy " ..
+                       "(Apple TV, HomePod) would fix it, nothing else will."
             end
             -- no ssh: fall back to the honest-but-weak ping test, and say it is weak
             local up = is_up(m)
-            return up and (m.name .. ": пакет ушёл, машина отвечает на сеть. Спит она или нет, " ..
-                    "по Wi-Fi без ssh не отличить.") or (m.name .. ": пакет ушёл, ответа нет.")
+            return up and (m.name .. ": packet sent, the machine answers on the network. Asleep or " ..
+                    "not, over Wi-Fi without ssh I can't tell.") or (m.name .. ": packet sent, no answer.")
         else
             local ok2, out = mac_ssh(m, "sudo /usr/sbin/pmset sleepnow || pmset sleepnow || osascript -e 'tell app \"System Events\" to sleep'")
-            if not ok2 then return "Не могу усыпить " .. m.name .. ": " .. out end
-            return m.name .. " отправлен в сон." .. ((out ~= "" and not out:match("^%s*$")) and ("\n" .. out:sub(1,120)) or "")
+            if not ok2 then return "Can't put " .. m.name .. " to sleep: " .. out end
+            return m.name .. " sent to sleep." .. ((out ~= "" and not out:match("^%s*$")) and ("\n" .. out:sub(1,120)) or "")
         end
     end
     if cmd == "/test" then
         st.mode, st.test_until = "test", os.time() + TEST_DURATION
         st.test_spoke, st.test_calls = 0, 0
-        return string.format("Тестовый режим. Болтаю без лимита, не чаще раза в минуту, до %s. " ..
-                             "Потом сам вернусь в chatty.", os.date("%H:%M", st.test_until))
+        return string.format("Test mode. No limit, no more than one a minute, until %s. " ..
+                             "Then back to chatty on my own.", os.date("%H:%M", st.test_until))
     end
     if cmd == "/off" or cmd == "/rare" or cmd == "/normal" or cmd == "/chatty" then
         st.mode, st.test_until = cmd:sub(2), nil
         local m = MODES[st.mode]
-        if st.mode == "off" then return "Молчу. Пиши, если что." end
-        return string.format("Режим %s. До %d раз в день, не чаще чем раз в %d минут.", st.mode, m.max, m.gap)
+        if st.mode == "off" then return "Quiet. Write if you need me." end
+        return string.format("Mode %s. At most %d a day, no more than one every %d minutes.", st.mode, m.max, m.gap)
     end
     if cmd == "/status" then
         local mode = st.mode or DEFAULT_MODE
         local m = MODES[mode]
         return string.format(
-            "Режим %s, пауза %d мин, %s. Сказал сегодня %d.\n" ..
-            "Думаю на %s. Обращений к модели %d из %d. Последний раз: %s.%s",
+            "Mode %s, gap %d min, %s. Said %d today.\n" ..
+            "Thinking on %s. Model calls %d of %d. Last spoke: %s.%s",
             mode, m.gap,
-            (m.max == math.huge) and "без дневного лимита"
-              or string.format("до %d в день, к этому часу открыто %d", m.max, allowance_now(m, mode)),
+            (m.max == math.huge) and "no daily limit"
+              or string.format("up to %d a day, %d open by this hour", m.max, allowance_now(m, mode)),
             st[(counters(st))] or 0,
             (env("FINN_MODEL") or MODELS[env("FINN_PROVIDER") or PROVIDER]),
             st[(select(2, counters(st)))] or 0, (mode == "test") and TEST_CALL_CAP or CALL_BUDGET,
-            ((st.last_spoke_at or 0) > 0) and os.date("%H:%M", st.last_spoke_at) or "ещё не говорил",
-            st.test_until and ("\nТест кончится в " .. os.date("%H:%M", st.test_until) .. ".") or "")
+            ((st.last_spoke_at or 0) > 0) and os.date("%H:%M", st.last_spoke_at) or "not yet",
+            st.test_until and ("\nTest ends at " .. os.date("%H:%M", st.test_until) .. ".") or "")
     end
     return nil
 end
@@ -1851,7 +1827,7 @@ local function main()
         st.mode, st.test_until = DEFAULT_MODE, nil
         log("test mode expired, back to %s", DEFAULT_MODE)
         if st.chat_id then
-            send(st.chat_id, "Два часа вышли. Возвращаюсь в chatty, раз в пятнадцать минут.")
+            send(st.chat_id, "Two hours are up. Back to chatty, one every fifteen minutes.")
         end
     end
 
@@ -1966,14 +1942,9 @@ local function main()
     if MODE_ARG == "say" then
         local _, ck = counters(st)
         st[ck] = (st[ck] or 0) + 1
-        -- same choice as his unprompted remarks; end the occasion with "English." or
-        -- "Russian." to force one
-        local lang = pick_lang()
         local occasion = arg[2] or "Say something."
-        if occasion:match("English%.?%s*$") then lang = "English" end
-        if occasion:match("Russian%.?%s*$") or occasion:match("Русский%.?%s*$") then lang = "Russian" end
         local text = think(occasion .. "\n\nWhat you witness right now:\n" ..
-                           render(s) .. STYLE[lang])
+                           render(s) .. STYLE)
         if text then
             print(text)
             if chat_id then send(chat_id, text) else print("(no chat_id yet, not delivered)") end
@@ -2044,7 +2015,6 @@ local function main()
             local chosen = fresh[1]
             local lines = { "- " .. chosen.text }
             local said = utf8_clean(table.concat(st.recent_subjects or {}, "; "))
-            local lang = pick_lang()
             local _, ck = counters(st)
             st[ck] = (st[ck] or 0) + 1
             local text
@@ -2061,7 +2031,7 @@ local function main()
                     "different from the last ones." ..
                     (past ~= "" and ("\n\nYour recent greetings, do not reuse their words, jokes or " ..
                      "opening:\n" .. past) or "") ..
-                    (lang == "English" and STYLE.English or STYLE.Russian))
+                    STYLE)
             else
                 text = think(
                 "Something in the room is off its usual range. This is not a status report and " ..
@@ -2079,7 +2049,7 @@ local function main()
                 "If the thing has any body to it at all, being hot, cold, ticklish, loud, crowded, " ..
                 "sore, or funny, then say it. Reply with exactly NOTHING only when the oddity is " ..
                 "bloodless bookkeeping with no sensation in it, or when you already said this today." ..
-                STYLE[lang])
+                STYLE)
             end
             if text and text ~= "" and not text:upper():match("^NOTHING") then
                 if send(chat_id, text) then

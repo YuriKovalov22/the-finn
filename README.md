@@ -14,8 +14,7 @@ hallway and an opinion about it.
 > Six failed SSH logins in the last minute, usually it's zero all night. Bloody hell, some
 > tosser out there fancies his chances.
 
-> Твой десктоп качает на скорости 9.5 Мбит/с, обычно там крутится жалких 200 Кбит/с.
-> В глотку будто ведро воды опрокинули, аж кадык свело.
+> Well, bugger me, look what the tide dragged in, thought you'd gone to ground for good.
 
 Everything runs on the router itself. If the rest of your infrastructure is on fire, this
 still works, which was most of the point. The words come from a model, and that model can be
@@ -25,7 +24,7 @@ internet cut, and no key sits on the router at all.
 ## Things he has said
 
 From the log of one router on one wall, in the order they happened, trimmed only where the
-log had cut them. He alternates languages by coin toss.
+log had cut them.
 
 > Port 853 knocking, one I've never heard before. New ghost this time, DNS-over-TLS by the
 > smell of it, some machine gone shy about who it's asking directions from.
@@ -36,9 +35,11 @@ log had cut them. He alternates languages by coin toss.
 > One less tickle on my ear, that fourth device on wifi just packed up and walked out. Down to
 > three now, just the usual family.
 
-> Опять твой десктоп долбит по нервам, воскресенье, семь утра, а он уже частит как пулемёт.
+> Port 853 stopped knocking, 17500 started up again in its place. Same damn ghost just
+> changed its knock, dressed up different, still scratching at the same door.
 
-> Твой телефон обратно на связи, якорь мне в глотку, двадцать часов шлялся где-то без меня.
+> Port 500 popped up in the traffic, IKE, the kind of knock nobody in this office ever uses.
+> Ears pricked and nothing there, just some VPN handshake ghost passing through.
 
 > Root's back in the building. Grid just lit up, one node blinking awake in the dark like the
 > whole network's been waiting on you, you magnificent bastard.
@@ -274,9 +275,10 @@ one message always available.
 He calls you by whatever you put in `FINN_OWNER_NAME`, and he only ever talks to the one
 Telegram id you configured.
 
-Unprompted remarks come out in Russian or English by coin toss. He answers you in whichever
-language you wrote in. `FINN_LANGS=en` or `ru` makes him monolingual when he speaks first;
-his answers still follow your language.
+He speaks English, whatever language you write to him in. He used to be bilingual, Russian
+and English by coin toss, and the first Hacker News thread had it right: the Finn is offended
+by the idea that he would speak Russian. To give him another language, the character prompt
+and `STYLE` near the middle of `finn.lua` are the whole of it.
 
 ## Running it
 
@@ -344,12 +346,12 @@ resident. Four rules in it were each learned by getting them wrong, and are wort
 any character you write:
 
 1. **The plain fact first, then the image.** A remark made only of metaphor and swearing reads
-   well and communicates nothing: "двести семьдесят восемь глоток орут в брюхе" leaves the
-   reader guessing what happened. Name the thing by its own name; the lock may follow as an
+   well and communicates nothing: "two hundred and seventy eight throats yelling in my gut"
+   leaves the reader guessing what happened. Name the thing by its own name; the lock may follow as an
    image, but it may not stand in for "failed SSH logins".
 2. **Every image must mean something.** Ask for a bodily reaction without demanding the
-   comparison be checkable and you get filler shaped like style: "проснулся резче, чем спал"
-   cannot be true or false.
+   comparison be checkable and you get filler shaped like style: "woke up sharper than it
+   slept" cannot be true or false.
 3. **Never let the character narrate its own plumbing.** Unprompted, a model will happily say
    "I was not given that value", which is true of the prompt and fatal to a thing bolted to a
    wall. It notices or it does not.
@@ -360,9 +362,9 @@ any character you write:
    Mbit/s each way", which is both wrong and unknowable from inside a router. Say plainly that
    it has never read a specification and that the only normal it owns is the one it measured
    in that room.
-5. **Write the style rule in the language it governs.** An English instruction about writing
-   numbers as digits sits unread at the bottom of a Russian answer. The same rule in Russian is
-   obeyed at once.
+5. **If you give him a second language, write the style rules in it.** From his bilingual
+   days: an English instruction about writing numbers as digits sat unread at the bottom of a
+   Russian answer. The same rule in Russian was obeyed at once.
 
 ## Privacy
 
