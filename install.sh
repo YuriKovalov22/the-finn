@@ -25,8 +25,13 @@ for required in FINN_TELEGRAM_TOKEN FINN_OWNER_ID; do
         exit 1
     fi
 done
-if ! grep -qE "^FINN_(ANTHROPIC|OPENAI)_KEY=." env; then
-    echo "env needs FINN_ANTHROPIC_KEY or FINN_OPENAI_KEY" >&2
+if grep -q "^FINN_PROVIDER=local" env; then
+    if ! grep -q "^FINN_LOCAL_URL=." env; then
+        echo "FINN_PROVIDER=local needs FINN_LOCAL_URL, the address of your model server" >&2
+        exit 1
+    fi
+elif ! grep -qE "^FINN_(ANTHROPIC|OPENAI)_KEY=." env; then
+    echo "env needs FINN_ANTHROPIC_KEY or FINN_OPENAI_KEY, or FINN_PROVIDER=local with FINN_LOCAL_URL" >&2
     exit 1
 fi
 

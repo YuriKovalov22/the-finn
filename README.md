@@ -18,11 +18,46 @@ hallway and an opinion about it.
 > В глотку будто ведро воды опрокинули, аж кадык свело.
 
 Everything runs on the router itself. If the rest of your infrastructure is on fire, this
-still works, which was most of the point.
+still works, which was most of the point. The words come from a model, and that model can be
+a cloud one or a box on your own network; with a local one he keeps talking with the
+internet cut, and no key sits on the router at all.
+
+## Things he has said
+
+From the log of one router on one wall, in the order they happened, trimmed only where the
+log had cut them. He alternates languages by coin toss.
+
+> Port 853 knocking, one I've never heard before. New ghost this time, DNS-over-TLS by the
+> smell of it, some machine gone shy about who it's asking directions from.
+
+> Your phone's gone mental, 99 new flows this minute against a usual 3. Bloody thing's buzzing
+> like a hornet in a jar, hell if I know what it's chattering about.
+
+> One less tickle on my ear, that fourth device on wifi just packed up and walked out. Down to
+> three now, just the usual family.
+
+> Опять твой десктоп долбит по нервам, воскресенье, семь утра, а он уже частит как пулемёт.
+
+> Твой телефон обратно на связи, якорь мне в глотку, двадцать часов шлялся где-то без меня.
+
+> Root's back in the building. Grid just lit up, one node blinking awake in the dark like the
+> whole network's been waiting on you, you magnificent bastard.
+
+> Your desktop's new connections dropped to 9 this minute, usual is around 45. Bloody hell,
+> after all that racket it's finally sat down and shut up for once.
+
+> Port 3478 popped up in the mess, that's the knock STUN servers make when something's trying
+> to punch a hole through for a voice or video call.
+
+> Ten straight days on my feet and not a single ache out of the ordinary, that's the strange
+> part tonight.
+
+`tick.sh said` prints your own router's collected works.
 
 ## Quick start
 
-You need about ten minutes, a router you own, and a card on file with an LLM provider.
+You need about ten minutes, a router you own, and a brain for him: a card on file with an
+LLM provider, or a machine on your network that runs a model.
 
 **1. Check your router can host it.** OpenWrt-based, with `lua`, `lua-cjson` and a `curl`
 built with TLS. On GL.iNet firmware all three are usually there already:
@@ -42,11 +77,12 @@ token is the bot; anyone holding it can post as him, so treat it as a password.
 **3. Find your own Telegram id.** Message [@userinfobot](https://t.me/userinfobot); it replies
 with a number. He answers that id and no other, so nobody else can talk to your router.
 
-**4. Get an API key.** [Anthropic](https://console.anthropic.com) or
+**4. Get an API key, or skip this step.** [Anthropic](https://console.anthropic.com) or
 [OpenAI](https://platform.openai.com/api-keys), both are wired up. **Create a dedicated key
 with a low monthly limit.** It will sit in plaintext on a device that shares a network with
 other people; a key that can only ever spend five dollars is a key you can shrug about.
-Expect single-digit dollars a month at the default settings.
+Expect single-digit dollars a month at the default settings. Or give him no key at all and
+point him at a model on your own network, see [A brain on your own network](#a-brain-on-your-own-network).
 
 **5. Install.**
 
@@ -65,6 +101,37 @@ next tick, within a minute. Send `/help` to see what he understands.
 
 That is the whole setup. He will stay quiet for the first fifteen minutes while he learns what
 normal looks like, then speak when something is not.
+
+## A brain on your own network
+
+The router does the sensing, the remembering and the deciding; the model only writes the
+line. So the model does not have to be in a datacentre. Anything that speaks the OpenAI
+chat API on your LAN works: llama.cpp, Ollama, vLLM, LM Studio, a Mac in the corner, a Pi
+with too much RAM. In `env`:
+
+```sh
+FINN_PROVIDER=local
+FINN_LOCAL_URL=http://192.168.8.20:11434/v1     # what your server prints; Ollama is 11434
+FINN_MODEL=qwen3:8b
+```
+
+No key on the router, nothing leaves the building, and he keeps grumbling with the uplink
+cut, which is when a router-resident has the most to say. `FINN_LOCAL_KEY` if your server
+wants one; `FINN_LOCAL_TIMEOUT` (default 180 s) if the box is slow. Reasoning models are
+told not to think first, and a `<think>` block that arrives anyway is stripped.
+
+Audition the model before trusting it with his voice:
+
+```sh
+/root/finn/tick.sh think "Six failed SSH logins in the last minute, usually zero. English."
+```
+
+That asks the brain in character and prints the answer, nothing posted. The bar is the one
+in [Tuning](#tuning): the fact first, an image that means something, no narrating its own
+plumbing. Expect small models to fail it: Haiku could not hold the voice, it answered about
+the wrong machine and let the metaphor swallow the fact, and a 3B local model will not do
+better. Around 8B is where it becomes worth trying. Try a few, they are free, and if one
+holds him well, say which in an issue.
 
 ## How he decides to speak
 
@@ -215,14 +282,16 @@ bottom of `finn.lua`.
 /root/finn/tick.sh say "..."  # make him speak on a given occasion
 /root/finn/tick.sh status     # the same answer /status gives in the bot
 /root/finn/tick.sh kinds      # how each sensor is grouped, and when each group last spoke
+/root/finn/tick.sh said       # everything he has ever said, in full, oldest first
+/root/finn/tick.sh think "…"  # ask the brain something in character; prints, posts nothing
 ```
 
 `facts` is strictly read-only, and that matters more than it looks: an inspection that saved
 what it saw would mark the oddity as already known, and the next real tick would have nothing
 left to say. Diagnostics must not eat the event they are diagnosing.
 
-State lives in `/root/finn/state.json`, events in `/root/finn/finn.log`; a quiet tick writes
-nothing. The first run takes a baseline and stays silent, so a cold start does not report every
+State lives in `/root/finn/state.json`, events in `/root/finn/finn.log`, his remarks in full
+in `/root/finn/said.log`; a quiet tick writes nothing. The first run takes a baseline and stays silent, so a cold start does not report every
 device in the building as a new face.
 
 ## A speaker, if you want one
@@ -234,7 +303,7 @@ Plug a class-compliant USB speaker into the router and he can be heard as well a
   at your phone. `sounds/finn-blip.wav` in this repo, copy it to `/root/bell/finn.wav`.
 - `speak`, which sends the remark to OpenAI speech synthesis (`FINN_TTS_VOICE`, default echo)
   and plays it through the speaker. Requires `FINN_OPENAI_KEY` even when the words come from
-  Anthropic. Volume is `FINN_VOLUME` — but note many cheap USB DACs ignore the ALSA PCM
+  Anthropic or a local model. Volume is `FINN_VOLUME` — but note many cheap USB DACs ignore the ALSA PCM
   control entirely (they report a level and play at full), so real attenuation is done by an
   ALSA softvol device; copy `asound.conf` to `/etc/asound.conf` and playback targets it.
 - `off`.
@@ -304,6 +373,26 @@ This watches a network, which means it watches the people on it. It is written f
 you own, in a room you occupy. Keep it that way. It reports on the owner's own named devices
 and on anonymous counts, it never inspects traffic contents (DNS query logging is deliberately
 not switched on), and it sends messages to exactly one Telegram id.
+
+## What it runs on
+
+The sensors are Linux and OpenWrt shaped: `iwinfo`, `/tmp/dhcp.leases`, `/proc/net/nf_conntrack`,
+`logread`, `wg`. The rest is Lua 5.1, cjson and curl. So:
+
+| Platform | State | Notes |
+|---|---|---|
+| GL.iNet GL-MT3000 (Beryl AX), OpenWrt 21.02 | tested, lives here | everything in this README was learned on it |
+| Other GL.iNet routers | expected to work | same firmware family, same packages; radios may be named differently, set `FINN_RADIOS` |
+| Stock OpenWrt 21 to 24 on anything with a few MB of overlay | expected to work | `opkg install lua lua-cjson curl`; `iwinfo` is present on all wifi builds |
+| A Raspberry Pi or x86 box running OpenWrt as the router | expected to work | plenty of RAM; a good place to also run the model |
+| ASUS with Asuswrt-Merlin | untested | Entware has Lua; `iwinfo` and `logread` are missing, so the wifi and log senses need rewriting |
+| Ubiquiti EdgeOS / UniFi gateways | untested | Debian underneath; conntrack is there, wifi is not on the box, so presence needs a different source |
+| MikroTik RouterOS | no, not as is | no Lua, no cron shell. The honest route is a container on RouterOS 7 and RouterOS's API for the senses; that is a port, not a config change |
+| OPNsense / pfSense | no, not as is | BSD: no `/proc/net/nf_conntrack`, no `iwinfo`. Doable with `pfctl` and `ifconfig`, again a port |
+
+If you get him talking somewhere not on this list, open an issue and say what you changed.
+The sensing is one function per sense, so a port is a matter of swapping those, not of
+rewriting him.
 
 ## Notes for the road
 

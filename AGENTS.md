@@ -13,9 +13,12 @@ themselves; everything else is yours. Do them in this order and stop at the firs
    this explicitly after installing, and verify with
    `grep -o '"chat_id":[0-9]*' /root/finn/state.json` on the router.
 
-You also need their numeric Telegram id (@userinfobot tells them) and an API key. Push for a
-dedicated key with a low spend limit rather than their main one: this key lands in plaintext on
-a router.
+You also need their numeric Telegram id (@userinfobot tells them) and a brain: an API key, or
+a model server on their LAN. With a key, push for a dedicated one with a low spend limit rather
+than their main one: it lands in plaintext on a router. With a local server (`FINN_PROVIDER=local`,
+`FINN_LOCAL_URL=http://host:port/v1`), confirm the router can reach it before anything else:
+`ssh "$ROUTER" 'curl -s -m 5 $FINN_LOCAL_URL/models'`, and audition the model with
+`tick.sh think "..."` because small models do not hold his voice.
 
 ## Check the router first
 
@@ -55,7 +58,8 @@ ssh "$ROUTER" 'grep -o "\"chat_id\":[0-9]*" /root/finn/state.json'   # after the
 ```
 
 He is silent for the first ~15 minutes by design, building a baseline. Silence is not a fault.
-`tick.sh say "..."` forces one message if the person wants proof it works.
+`tick.sh say "..."` forces one message if the person wants proof it works. `tick.sh think "..."`
+proves the brain answers without posting anything; `tick.sh said` lists what he has said in full.
 
 ## Things that will waste your time if you do not know them
 

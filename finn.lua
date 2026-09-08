@@ -14,9 +14,12 @@ local DIR   = "/root/finn"
 local STATE = DIR .. "/state.json"      -- persistent, on flash: written only when it changes
 local VOL   = "/tmp/finn-vol.json"      -- volatile, in RAM: sensor history, rebuilt in minutes
 local LOG   = DIR .. "/finn.log"
--- Which brain he thinks with. Both are wired up; set FINN_PROVIDER and FINN_MODEL in env.
-local PROVIDER  = "anthropic"     -- "openai" or "anthropic", overridden by FINN_PROVIDER
-local MODELS    = { openai = "gpt-5.5", anthropic = "claude-sonnet-5" }
+local SAID  = DIR .. "/said.log"        -- every unprompted remark in full; finn.log keeps a stub
+-- Which brain he thinks with. Three are wired up; set FINN_PROVIDER and FINN_MODEL in env.
+-- "local" is any OpenAI-compatible server on your own network (llama.cpp, Ollama, vLLM,
+-- LM Studio): no card, no key, and the whole thing keeps working with the internet cut.
+local PROVIDER  = "anthropic"     -- "anthropic", "openai" or "local", overridden by FINN_PROVIDER
+local MODELS    = { openai = "gpt-5.5", anthropic = "claude-sonnet-5", ["local"] = "qwen3:8b" }
 
 local HIST         = 45          -- samples kept per sensor, i.e. what "normal" means to him
 local WARMUP       = 15          -- samples before a sensor may cry anomaly
@@ -47,6 +50,15 @@ local function log(fmt, ...)
     local line = os.date("%Y-%m-%d %H:%M:%S ") .. string.format(fmt, ...)
     local f = io.open(LOG, "a")
     if f then f:write(line .. "\n"); f:close() end
+end
+
+-- The remarks are the only output worth keeping, and the event log cuts them short.
+-- One line each, tab-separated, so `tick.sh said` can read his collected works back.
+local function remember_said(kind, text)
+    local f = io.open(SAID, "a")
+    if not f then return end
+    f:write(os.date("%Y-%m-%d %H:%M") .. "\t" .. kind .. "\t" .. (text:gsub("[\r\n]+", " ")) .. "\n")
+    f:close()
 end
 
 local function sh(cmd)
@@ -1321,6 +1333,7 @@ local function think(prompt)
     local model    = env("FINN_MODEL") or MODELS[provider]
     local url, headers, payload
 
+    local timeout = 60
     if provider == "openai" then
         local key = env("FINN_OPENAI_KEY")
         if not key then log("no openai key"); return nil end
@@ -1329,6 +1342,29 @@ local function think(prompt)
         payload = {
             model = model,
             max_completion_tokens = 800,
+            messages = { { role = "system", content = system_prompt() },
+                         { role = "user",   content = prompt } },
+        }
+    elseif provider == "local" then
+        -- FINN_LOCAL_URL is the server's base, http://host:port/v1, as printed by llama.cpp,
+        -- Ollama (port 11434), vLLM or LM Studio. A key is optional; most local servers
+        -- want none. A small box takes its time, so the wait is longer than for the cloud,
+        -- but capped well under the tick lock so a stuck server cannot wedge him.
+        local base = env("FINN_LOCAL_URL")
+        if not base then log("no FINN_LOCAL_URL"); return nil end
+        url     = base:gsub("/+$", "") .. "/chat/completions"
+        headers = {}
+        local key = env("FINN_LOCAL_KEY")
+        if key then headers[1] = 'header = "Authorization: Bearer ' .. key .. '"' end
+        timeout = tonumber(env("FINN_LOCAL_TIMEOUT") or "") or 180
+        payload = {
+            model = model,
+            max_tokens = 800,
+            temperature = 0.8,
+            -- reasoning models answer a one-line grumble with a page of deliberation first;
+            -- both switches are ignored by servers that do not know them
+            think = false,
+            chat_template_kwargs = { enable_thinking = false },
             messages = { { role = "system", content = system_prompt() },
                          { role = "user",   content = prompt } },
         }
@@ -1348,7 +1384,7 @@ local function think(prompt)
     end
 
     write_file("/tmp/finn-req.json", json.encode(payload), "600")
-    local conf = { 'silent', 'max-time = 60', 'url = "' .. url .. '"',
+    local conf = { 'silent', 'max-time = ' .. timeout, 'url = "' .. url .. '"',
                    'header = "content-type: application/json"',
                    'data-binary = "@/tmp/finn-req.json"' }
     for _, h in ipairs(headers) do conf[#conf + 1] = h end
@@ -1364,9 +1400,11 @@ local function think(prompt)
     end
 
     local text
-    if provider == "openai" then
+    if provider == "openai" or provider == "local" then
         text = res.choices and res.choices[1] and res.choices[1].message
                and res.choices[1].message.content
+        -- a local reasoning model that ignored the switch still wraps its thinking in tags
+        if text then text = text:gsub("<think>.-</think>%s*", "") end
     else
         -- the model can return a leading "thinking" block before the text one, so find the
         -- text block rather than assuming it is first (a wrong assumption reads as empty)
@@ -1750,6 +1788,22 @@ math.randomseed(os.time())
 local MODE_ARG = (arg and arg[1]) or "tick"
 
 local function main()
+    -- ask the brain a question from the console and print the answer, nothing posted:
+    --   tick.sh think "Six failed SSH logins in the last minute, usually zero. English."
+    -- the way to find out whether a local model can hold his voice before trusting it
+    if MODE_ARG == "think" then
+        local answer = think(arg[2] or "Say one dry line about a quiet hallway. English.")
+        print(answer or "(nothing usable came back, see finn.log)")
+        return
+    end
+
+    -- his collected works: every unprompted remark in full, oldest first
+    if MODE_ARG == "said" then
+        local f = io.open(SAID, "r")
+        if f then io.write(f:read("*a")); f:close() else print("(he has not said anything yet)") end
+        return
+    end
+
     local st = load_state()
     local today = os.date("%Y-%m-%d")
     if st.day ~= today then
@@ -2005,6 +2059,7 @@ local function main()
                     end
                     log("spoke (%s/%s/%s): %s", chosen.kind, chosen.shape, chosen.key,
                         utf8_trunc((text:gsub("\n", " ")), 160))
+                    remember_said(chosen.kind .. "/" .. chosen.key, text)
                 end
             elseif text == nil then
                 -- the call failed; that is not a decision, so the subject stays live

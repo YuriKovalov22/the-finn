@@ -2,6 +2,8 @@
 # One Finn tick. Runs every minute from cron; also the entry point for manual use:
 #   /root/finn/tick.sh facts        what the box sees right now
 #   /root/finn/tick.sh say "..."    make him speak on a given occasion
+#   /root/finn/tick.sh said         everything he has said, in full
+#   /root/finn/tick.sh think "..."  ask the brain a question, print the answer, post nothing
 DIR=/root/finn
 LOCK=/tmp/finn.lock
 
@@ -16,9 +18,11 @@ set -a
 . "$DIR/env"
 set +a
 
-# keep the log from ever filling the overlay
-if [ -f "$DIR/finn.log" ] && [ "$(wc -c < "$DIR/finn.log")" -gt 262144 ]; then
-    tail -c 131072 "$DIR/finn.log" > "$DIR/finn.log.new" && mv "$DIR/finn.log.new" "$DIR/finn.log"
-fi
+# keep the logs from ever filling the overlay
+for f in finn.log said.log; do
+    if [ -f "$DIR/$f" ] && [ "$(wc -c < "$DIR/$f")" -gt 262144 ]; then
+        tail -c 131072 "$DIR/$f" > "$DIR/$f.new" && mv "$DIR/$f.new" "$DIR/$f"
+    fi
+done
 
 /usr/bin/lua "$DIR/finn.lua" "$@"
