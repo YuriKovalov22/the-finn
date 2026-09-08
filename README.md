@@ -275,8 +275,8 @@ He calls you by whatever you put in `FINN_OWNER_NAME`, and he only ever talks to
 Telegram id you configured.
 
 Unprompted remarks come out in Russian or English by coin toss. He answers you in whichever
-language you wrote in. To make him monolingual, edit `STYLE` and the language line near the
-bottom of `finn.lua`.
+language you wrote in. `FINN_LANGS=en` or `ru` makes him monolingual when he speaks first;
+his answers still follow your language.
 
 ## Running it
 

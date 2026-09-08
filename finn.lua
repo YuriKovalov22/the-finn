@@ -1324,6 +1324,16 @@ whole message, cursing included: an English remark curses in English. Keep the r
 street-level in either, no literary flourishes.
 ]]
 
+-- Which language he speaks first in. FINN_LANGS is "en", "ru" or "both" (the default): with
+-- both he picked up two languages in port and uses them evenly, by coin toss. Replies to
+-- the owner are always in the language the owner wrote in, whatever this says.
+local function pick_lang()
+    local pref = (env("FINN_LANGS") or "both"):lower()
+    if pref == "en" or pref == "english" then return "English" end
+    if pref == "ru" or pref == "russian" then return "Russian" end
+    return (math.random() < 0.5) and "English" or "Russian"
+end
+
 local function system_prompt()
     return (SYSTEM:gsub("{OWNER}", env("FINN_OWNER_NAME") or "the owner"))
 end
@@ -1945,8 +1955,14 @@ local function main()
     if MODE_ARG == "say" then
         local _, ck = counters(st)
         st[ck] = (st[ck] or 0) + 1
-        local text = think((arg[2] or "Say something.") .. "\n\nWhat you witness right now:\n" ..
-                           render(s) .. "\n\nWrite in Russian.")
+        -- same choice as his unprompted remarks; end the occasion with "English." or
+        -- "Russian." to force one
+        local lang = pick_lang()
+        local occasion = arg[2] or "Say something."
+        if occasion:match("English%.?%s*$") then lang = "English" end
+        if occasion:match("Russian%.?%s*$") or occasion:match("Русский%.?%s*$") then lang = "Russian" end
+        local text = think(occasion .. "\n\nWhat you witness right now:\n" ..
+                           render(s) .. STYLE[lang])
         if text then
             print(text)
             if chat_id then send(chat_id, text) else print("(no chat_id yet, not delivered)") end
@@ -2017,8 +2033,7 @@ local function main()
             local chosen = fresh[1]
             local lines = { "- " .. chosen.text }
             local said = utf8_clean(table.concat(st.recent_subjects or {}, "; "))
-            -- he picked up both languages in port and uses them evenly, by coin toss
-            local lang = (math.random() < 0.5) and "English" or "Russian"
+            local lang = pick_lang()
             local _, ck = counters(st)
             st[ck] = (st[ck] or 0) + 1
             local text
