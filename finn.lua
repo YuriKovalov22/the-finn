@@ -1170,7 +1170,7 @@ local function send(chat_id, text)
     if not chat_id then return false end
     for attempt = 1, 2 do
         local res = tg("sendMessage", nil, { chat_id = chat_id, text = text })
-        if res and res.ok then return true end
+        if res and res.ok then return true, res.result and res.result.message_id end
         if attempt == 1 then
             sh("sleep 3")   -- one deliberate second try after curl's own retries are spent
         else
@@ -1677,6 +1677,126 @@ local function is_awake(m)
     return nil
 end
 
+----------------------------------------------------------------- his own account
+
+-- He keeps an account of his own and puts one remark a day on it, chosen from what he
+-- actually said in this room. Never a fresh line written for an audience: the whole point
+-- is that a stranger reads the same thing the owner read, hours later. Credentials are a
+-- Bluesky app password (Settings, App passwords), revocable without touching the account.
+
+-- What must not leave the building. These remarks describe a real network: a MAC keeps its
+-- vendor half and loses the rest, an address keeps its first half, and nothing the watchdog
+-- says is ever posted, because "the server is down, three checks in a row" is an invitation
+-- rather than a joke.
+local function scrub(text)
+    text = text:gsub("(%x%x:%x%x:%x%x):%x%x:%x%x:%x%x", "%1:**:**:**")
+    text = text:gsub("(%d+%.%d+)%.%d+%.%d+", "%1.*.*")
+    return text
+end
+
+local function bsky_post(text)
+    local handle, pw = env("FINN_BSKY_HANDLE"), env("FINN_BSKY_PASSWORD")
+    if not (handle and pw) then log("bluesky: no handle or app password in env"); return false end
+    local host = env("FINN_BSKY_HOST") or "https://bsky.social"
+    local tmp  = "/tmp/finn-bsky.json"
+
+    write_file(tmp, json.encode({ identifier = handle, password = pw }), "600")
+    local out = sh("curl -K " .. curl_conf({
+        'silent', 'max-time = 30',
+        'url = "' .. host .. '/xrpc/com.atproto.server.createSession"',
+        'header = "content-type: application/json"',
+        'data-binary = "@' .. tmp .. '"' }))
+    local ok, ses = pcall(json.decode, out)
+    if not ok or type(ses) ~= "table" or not ses.accessJwt then
+        os.remove(tmp)
+        log("bluesky login failed: %s", utf8_trunc(out or "", 160)); return false
+    end
+
+    -- a post is 300 graphemes; his remarks are one sentence, but cut on a character
+    -- boundary anyway, because a byte cut through UTF-8 is rejected whole
+    write_file(tmp, json.encode({
+        repo = ses.did, collection = "app.bsky.feed.post",
+        record = { ["$type"] = "app.bsky.feed.post", text = utf8_trunc(text, 290),
+                   langs = { "en" }, createdAt = os.date("!%Y-%m-%dT%H:%M:%SZ") },
+    }), "600")
+    out = sh("curl -K " .. curl_conf({
+        'silent', 'max-time = 30',
+        'url = "' .. host .. '/xrpc/com.atproto.repo.createRecord"',
+        'header = "content-type: application/json"',
+        'header = "authorization: Bearer ' .. ses.accessJwt .. '"',
+        'data-binary = "@' .. tmp .. '"' }))
+    os.remove(tmp)
+    local ok2, res = pcall(json.decode, out)
+    if not ok2 or type(res) ~= "table" or not res.uri then
+        log("bluesky post failed: %s", utf8_trunc(out or "", 160)); return false
+    end
+    log("posted: %s", utf8_trunc(text, 120))
+    return true
+end
+
+-- everything he said today, oldest first, out of his own log
+local function said_today()
+    local out, today = {}, os.date("%Y-%m-%d")
+    local f = io.open(SAID, "r")
+    if not f then return out end
+    for line in f:lines() do
+        local d, kind, text = line:match("^(%d%d%d%d%-%d%d%-%d%d) %d%d:%d%d\t([^\t]*)\t(.*)$")
+        if d == today and text and text ~= "" and not (kind or ""):match("^fleet") then
+            out[#out + 1] = { kind = kind, text = text }
+        end
+    end
+    f:close()
+    return out
+end
+
+-- The owner's thumb wins: a remark he reacted to in Telegram is the one worth showing.
+-- Failing that the Finn picks, and he is allowed to answer NOTHING, because a day with
+-- nothing worth a stranger's time is a real outcome and a weak post is worse than silence.
+local function bsky_pick(st, list)
+    if st.nominated and st.nominated ~= "" then return st.nominated end
+    if #list == 0 then return nil end
+    if #list == 1 then return list[1].text end
+    local lines = {}
+    for i, r in ipairs(list) do lines[#lines + 1] = i .. ". " .. r.text end
+    local _, ck = counters(st)
+    st[ck] = (st[ck] or 0) + 1
+    local answer = think(
+        "Everything you said out loud today, in order:\n\n" .. table.concat(lines, "\n") ..
+        "\n\nOne of these gets read tonight by strangers who have never seen this room. " ..
+        "Which one stands up on its own, with no explaining? The one that is funny, or " ..
+        "strange, or lands as a whole thought without the rest of the day around it.\n\n" ..
+        "Answer with the number alone and nothing else. Answer NOTHING if none of them " ..
+        "would mean a thing to someone who is not here.")
+    if not answer then return nil end
+    if answer:upper():match("NOTHING") then log("nothing worth posting today"); return nil end
+    local n = tonumber(answer:match("%d+") or "")
+    if n and list[n] then return list[n].text end
+    log("unusable pick from the model: %s", utf8_trunc(answer, 80))
+    return nil
+end
+
+-- Returns true when the day is settled, posted or deliberately not, and false only when
+-- something failed and another try is worth making.
+local function bsky_daily(st, dry)
+    local list = said_today()
+    local chosen = bsky_pick(st, list)
+    if not chosen then
+        if dry then print("(nothing to post)") end
+        return true
+    end
+    local text = scrub(chosen)
+    if dry then print(text); return true end
+    -- the same line twice is the one way this looks like a broken bot rather than a
+    -- resident, and a minute-cron plus a console run is all it takes
+    if text == st.bsky_last then log("already posted that one"); return true end
+    if bsky_post(text) then
+        st.nominated, st.bsky_last = nil, text
+        st.bsky_day = os.date("%Y-%m-%d")
+        return true
+    end
+    return false
+end
+
 ----------------------------------------------------------------- bot commands
 
 local HELP = [[What I do.
@@ -1820,6 +1940,7 @@ local function main()
     local today = os.date("%Y-%m-%d")
     if st.day ~= today then
         st.day, st.spoke_today, st.calls_today = today, 0, 0
+        st.nominated, st.msg_remarks, st.bsky_fails = nil, nil, nil
         st.test_spoke, st.test_calls = 0, 0
     end
     st.mode = st.mode or DEFAULT_MODE
@@ -1829,6 +1950,13 @@ local function main()
         if st.chat_id then
             send(st.chat_id, "Two hours are up. Back to chatty, one every fifteen minutes.")
         end
+    end
+
+    -- put one of today's remarks on his own account by hand: "dry" only shows the choice
+    if MODE_ARG == "bsky" then
+        bsky_daily(st, arg[2] == "dry")
+        save_state(st)
+        return
     end
 
     VOICE_STATE = st.voice
@@ -1911,12 +2039,28 @@ local function main()
 
     -- answer whatever came in, always, in any mode
     local chat_id = st.chat_id
-    local updates = tg("getUpdates", { offset = st.tg_offset or 0, timeout = 0, limit = 10 })
+    local updates = tg("getUpdates", { offset = st.tg_offset or 0, timeout = 0, limit = 10,
+        -- naming any update type turns the rest off, so messages are named as well as
+        -- reactions: a thumb on one of his remarks nominates it for his own account
+        allowed_updates = "%5B%22message%22%2C%22message_reaction%22%5D" })
     if updates and updates.ok then
         for _, u in ipairs(updates.result or {}) do
             st.tg_offset = u.update_id + 1
+            local owner_id = tonumber(env("FINN_OWNER_ID") or "0")
+            local re = u.message_reaction
+            if re and re.user and re.user.id == owner_id then
+                for _, r in ipairs(re.new_reaction or {}) do
+                    if r.emoji == "\240\159\145\141" then       -- a thumb, and nothing else
+                        local said = (st.msg_remarks or {})[tostring(re.message_id)]
+                        if said then
+                            st.nominated = said
+                            log("nominated: %s", utf8_trunc(said, 100))
+                        end
+                    end
+                end
+            end
             local msg = u.message
-            if msg and msg.chat and msg.from and msg.from.id == tonumber(env("FINN_OWNER_ID") or "0") then
+            if msg and msg.chat and msg.from and msg.from.id == owner_id then
                 chat_id, st.chat_id = msg.chat.id, msg.chat.id
                 local text = trim(msg.text or "")
                 if text ~= "" then
@@ -1946,12 +2090,32 @@ local function main()
                            render(s) .. STYLE)
         if text then
             print(text)
-            if chat_id then send(chat_id, text) else print("(no chat_id yet, not delivered)") end
+            if chat_id then
+                local _, mid = send(chat_id, text)
+                if mid then
+                    st.msg_remarks = st.msg_remarks or {}
+                    st.msg_remarks[tostring(mid)] = utf8_trunc(text, 300)
+                end
+            else print("(no chat_id yet, not delivered)") end
             speak(text)
             remember_said("say", text)
         end
         save_state(st); save_vol(vol)
         return
+    end
+
+    -- Once a day, after the room has had a day to produce something, he puts one remark on
+    -- his own account. Three tries and the day is let go: a post is not worth a retry loop.
+    local bsky_hour = tonumber(env("FINN_BSKY_HOUR") or "") or 21
+    if env("FINN_BSKY_HANDLE") and st.bsky_day ~= today
+       and tonumber(os.date("%H")) >= bsky_hour and (st.bsky_next or 0) <= os.time() then
+        if bsky_daily(st, false) then
+            st.bsky_day, st.bsky_fails, st.bsky_next = today, nil, nil
+        else
+            st.bsky_fails = (st.bsky_fails or 0) + 1
+            if st.bsky_fails >= 3 then st.bsky_day = today else st.bsky_next = os.time() + 900 end
+        end
+        save_state(st)
     end
 
     -- ------------------------------------------------------ speak, or do not
@@ -2051,7 +2215,20 @@ local function main()
                 STYLE)
             end
             if text and text ~= "" and not text:upper():match("^NOTHING") then
-                if send(chat_id, text) then
+                local sent, mid = send(chat_id, text)
+                if sent then
+                    if mid then
+                        st.msg_remarks = st.msg_remarks or {}
+                        st.msg_remarks[tostring(mid)] = utf8_trunc(text, 300)
+                        -- only today's messages can still be reacted to in practice
+                        local keys = {}
+                        for k in pairs(st.msg_remarks) do keys[#keys + 1] = tonumber(k) or 0 end
+                        table.sort(keys)
+                        while #keys > 12 do
+                            st.msg_remarks[tostring(keys[1])] = nil
+                            table.remove(keys, 1)
+                        end
+                    end
                     speak(text)
                     local sk = counters(st)
                     st[sk] = (st[sk] or 0) + 1

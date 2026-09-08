@@ -58,6 +58,33 @@ log had cut them.
 `tick.sh said` prints your own router's collected works. Post the best of them in
 [What did your Finn say today?](https://github.com/YuriKovalov22/the-finn/discussions/2)
 
+Mine keeps an account of his own and puts one remark a day on it:
+[@finnrouter.bsky.social](https://bsky.app/profile/finnrouter.bsky.social).
+
+## An account of his own
+
+Set `FINN_BSKY_HANDLE` and `FINN_BSKY_PASSWORD` (an app password from Bluesky's settings,
+not the account password) and once a day, in the evening, he posts one of that day's
+remarks. Never a fresh line written for an audience: a stranger reads the same thing you
+read hours earlier, which is the only version of this that stays in character.
+
+Which one goes out is decided twice. React to a remark in Telegram with a thumb and that
+is the one. Otherwise he is shown the day's remarks and picks the one that stands up
+without the rest of the day around it, and he may answer that none of them do, in which
+case nothing is posted. A day with nothing worth saying to a stranger is a real day.
+
+What goes out is scrubbed first, in code rather than by asking the model nicely: a MAC
+address keeps its vendor half and loses the rest, an IP keeps its first half, and anything
+the fleet watchdog said is never posted at all, because "the server is down, three checks
+in a row" is an invitation rather than a joke. Device names, hours and rates do go out.
+That is the point of him, and it is also your network: read your own account for a week
+before you point this at a network other people share.
+
+```sh
+/root/finn/tick.sh bsky dry   # what tonight's post would be, posts nothing
+/root/finn/tick.sh bsky       # post it now
+```
+
 ## Quick start
 
 You need about ten minutes, a router you own, and a brain for him: a card on file with an
@@ -293,6 +320,7 @@ and `STYLE` near the middle of `finn.lua` are the whole of it.
 /root/finn/tick.sh kinds      # how each sensor is grouped, and when each group last spoke
 /root/finn/tick.sh said       # everything he has ever said, in full, oldest first
 /root/finn/tick.sh think "…"  # ask the brain something in character; prints, posts nothing
+/root/finn/tick.sh bsky [dry] # put today's remark on his own account, or just show it
 ```
 
 `facts` is strictly read-only, and that matters more than it looks: an inspection that saved
