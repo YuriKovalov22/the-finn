@@ -1492,9 +1492,17 @@ local function speak(text)
     os.remove("/tmp/finn-tts.wav")
     sh("curl -K " .. conf)
     local f = io.open("/tmp/finn-tts.wav", "rb")
-    local size = f and #(f:read(64) or "") or 0
+    local head = f and (f:read(400) or "") or ""
     if f then f:close() end
-    if size < 40 then log("tts produced nothing playable"); return end
+    -- a refusal comes back as a small JSON body, not as sound; it used to be handed to
+    -- aplay and played as silence, which read as the speaker having died. Say why in the
+    -- log and fall back to the pip, so there is still a sound to look up at.
+    if head:sub(1, 4) ~= "RIFF" then
+        local why = head:match('"message"%s*:%s*"([^"]+)"') or ("no audio, " .. #head .. " bytes")
+        log("tts refused: %s", utf8_trunc(why, 160))
+        sh("aplay " .. dev .. " -q /root/bell/finn.wav")
+        return
+    end
     sh("aplay " .. dev .. " -q /tmp/finn-tts.wav")
 end
 
