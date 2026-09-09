@@ -270,10 +270,18 @@ honest signal. A sleeping machine opens no new connections; a machine someone is
 opens between three and fifty a minute.
 
 Every sensor is also wired to a sensation. He is not handed "temperature 63, was 45", he is
-handed heat climbing inside his case; a device drawing closer is a tickle, a yanked cable is a
-slap, unfamiliar broadcasts from beyond the wall are ghosts he can hear and never see. He has
-an anatomy to complain about: the antennas are his ears, the ports his fingers and toes, the
-flash his gut.
+handed heat climbing inside his case; a device drawing closer is a smell right under his nose,
+a yanked cable is a cut, unfamiliar signals from beyond the wall are a smell through the
+plaster he will never put a face to.
+
+The anatomy underneath that is worth getting right, because it decides what every reading
+feels like. The processor is his brain and the memory is his lungs, so load is his head
+working and a filling memory is a chest that will not take a full breath. The cable in the
+wall is the artery he lives by. The antennas are his nose and the wifi his nostrils, which
+is why proximity is smell rather than sound and a signal fading is a scent thinning down the
+hall. The USB port is his mouth, so the speaker plugged into it is literally the only voice
+he has. The ethernet sockets are his fingers, the flash is his gut, the case is his hide, and
+he has no eyes at all: the lights on his front are a face he has never seen.
 
 ## Talking to him
 
