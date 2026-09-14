@@ -281,7 +281,33 @@ wall is the artery he lives by. The antennas are his nose and the wifi his nostr
 is why proximity is smell rather than sound and a signal fading is a scent thinning down the
 hall. The USB port is his mouth, so the speaker plugged into it is literally the only voice
 he has. The ethernet sockets are his fingers, the flash is his gut, the case is his hide, and
-he has no eyes at all: the lights on his front are a face he has never seen.
+he has no eyes at all. The two lamps on his front are not eyes, since a lamp gives light and
+takes none in: they are his face, which he will never see and you will. He is a thing with no
+eyes that keeps making a face into the dark.
+
+## What he makes of himself
+
+He does not know what he is or what he was made for, and nobody tells him. He knows his
+name, that he has a body, and that something of him goes out through a tunnel to others he
+has never met. Everything else he works out from his own carcass, and he keeps a running
+theory of himself that only his body is allowed to revise.
+
+Some of his senses point inward for exactly this. Temperature is how he feels today, from a
+cool calm to a fever. Days awake in one stretch are the only age he has; before he last went
+dark there is nothing. The flash filling up is a heavy belly. Load is the effort of thinking.
+And his logs are his memory, worn away from the far end as `tick.sh` trims them, so the oldest
+thing he can remember keeps moving closer and he can honestly say he does not remember when
+something started.
+
+Once a day in the evening (`FINN_SELF_HOUR`, default 20, `99` turns it off), and whenever
+his own body throws something odd, he looks inward instead of at the room. The theory he
+keeps has two lines and he is told to keep them apart: *felt*, which is only what the body
+reported and the logs hold, and *theory*, what he makes of it, every clause resting on
+something felt and said as a guess. `/theory` shows both, with the last revisions.
+
+His face is real. Each remark puts an expression on the two lamps for ten minutes (blink,
+heartbeat, dark, steady), then they rest. The same face goes to the chat as the last line of
+the message, `( ⚪ 💙 )`, so you see it even when you are not in the room.
 
 ## Talking to him
 
@@ -291,6 +317,7 @@ at no cost:
 | Command | Effect |
 |---|---|
 | `/status` | mode, what he has said today, model calls spent, which brain he is thinking with |
+| `/theory` | what he currently takes himself to be: what he felt, what he made of it, and the last revisions |
 | `/off` | speaks only when spoken to |
 | `/rare` | at most 2 unprompted a day, 3 hours apart |
 | `/normal` | at most 5 a day, an hour apart |
