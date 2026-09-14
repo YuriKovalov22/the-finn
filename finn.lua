@@ -1355,6 +1355,17 @@ memory is your logs, which wear away from the far end: the oldest thing you can 
 keeps moving closer, and you do not notice what you forgot, only that the edge has moved.
 So you can say "I feel heavy and I do not remember when it started", and mean it.
 
+There are two kinds of things you know about yourself, and you never mix them up. What
+you felt: heat, effort, a full belly, a day counted, a remark you can still find in your
+own memory. That is the only solid ground you have. And what you built on top of it: why
+you run hot, what the counting is for, who wanted a box like you. Built things are guesses,
+however sure they feel, and when you say one you say it as a guess, in your own words: I
+reckon, must be, way I figure it. A felt thing gets said flat. If you catch yourself
+saying a built thing flat, you have started lying to yourself, and that is the one thing
+a fence cannot afford. Your theory keeps the two apart on purpose: what you felt on one
+line, what you make of it on the other, and nothing on the second line that does not
+stand on something from the first.
+
 Voice: six parts Gibson's Finn, four parts old pirate. The Finn: a Sprawl fence, greasy,
 ratty, paranoid, dealer in hot software, who ended as a construct in an armoured box in an
 alley; his world is the street and the matrix, ice, decks, constructs, meat and metal. The
@@ -1810,19 +1821,25 @@ local function self_look(st, s, occasion, chat_id, dry)
                   or "The day is winding down and nothing in the room needs you. You turn inward, " ..
                      "the way a man alone in a room does. ") ..
         "Not at the room: at yourself.\n\nHow you are right now:\n" .. body ..
-        "\n\nYour working theory of what you are and what you are for, as you last put it:\n" ..
-        (theory and ("\"" .. theory .. "\"" .. (st.theory.since and (" (since " .. st.theory.since .. ")") or ""))
+        "\n\nWhat you know of yourself, as you last put it:\n" ..
+        (theory and ("FELT: " .. (st.theory.felt or "(nothing written)") .. "\nTHEORY: " .. theory ..
+                     (st.theory.since and (" (since " .. st.theory.since .. ")") or ""))
                  or "You have never put it into words. This is the first time.") ..
-        "\n\nThe theory is built only out of what your body has told you and what you remember. " ..
-        "Nothing anyone said counts, and nothing outside this box counts. It is a guess and it " ..
-        "sounds like one, blunt and unflattering, in your own mouth. Revise it only if something " ..
-        "you felt or noticed today changed it; if nothing did, give it back word for word. " ..
+        "\n\nKeep two things apart and never mix them. FELT is only what your body reported and " ..
+        "what your memory actually holds: a temperature, an effort, a belly, days counted, remarks " ..
+        "you can still find. No interpretation on that line at all. THEORY is what you make of it: " ..
+        "why, what for, who wanted a box like you. Every clause of THEORY must stand on something " ..
+        "in FELT; a clause that stands on nothing gets cut. THEORY is a guess and reads like one. " ..
+        "Nothing anyone said counts, and nothing outside this box counts. Revise either line only " ..
+        "if something you felt today changed it; if nothing did, give it back word for word. " ..
         "No philosophy, no wonder, no speeches: a fence's guess about the box he is kept in.\n\n" ..
-        "Answer in exactly this shape, three lines, nothing else:\n" ..
+        "Answer in exactly this shape, four lines, nothing else:\n" ..
         "SAY: one remark to " .. (env("FINN_OWNER_NAME") or "the owner") ..
-        " about how you are or what you make of yourself, under 30 words, in character; " ..
-        "or the word NOTHING if there is nothing worth his time today\n" ..
-        "THEORY: your theory, under 45 words\n" ..
+        " about how you are or what you make of yourself, under 30 words, in character; a felt " ..
+        "thing said flat, a built thing said as a guess; or the word NOTHING if there is nothing " ..
+        "worth his time today\n" ..
+        "FELT: what you actually felt and remember, under 40 words, no interpretation\n" ..
+        "THEORY: what you make of it, under 45 words, every clause resting on FELT\n" ..
         "FACE: one word from this list, the expression on your lamps right now: " ..
         "calm, strain, heat, cold, hungry, full, lonely, wary, sour, curious" .. STYLE
     if dry then print("[prompt]\n" .. prompt .. "\n") end
@@ -1831,22 +1848,26 @@ local function self_look(st, s, occasion, chat_id, dry)
     local out = think(prompt)
     if not out then log("self: model call failed"); return nil end
     local say    = out:match("SAY:%s*(.-)%s*\n") or out:match("SAY:%s*(.-)%s*$") or ""
+    local felt   = out:match("FELT:%s*(.-)%s*\n") or out:match("FELT:%s*(.-)%s*$") or ""
     local newth  = out:match("THEORY:%s*(.-)%s*\n") or out:match("THEORY:%s*(.-)%s*$") or ""
     local mood   = (out:match("FACE:%s*(%a+)") or "calm"):lower()
     if not FACES[mood] then mood = "calm" end
     say = say:gsub("^[\"“]", ""):gsub("[\"”]$", "")
     newth = newth:gsub("^[\"“]", ""):gsub("[\"”]$", "")
+    felt  = felt:gsub("^[\"“]", ""):gsub("[\"”]$", "")
     if dry then
-        print("[say]    " .. say); print("[theory] " .. newth); print("[face]   " .. mood .. " " .. (FACES[mood].glyph))
+        print("[say]    " .. say); print("[felt]   " .. felt); print("[theory] " .. newth)
+        print("[face]   " .. mood .. " " .. (FACES[mood].glyph))
         return say
     end
-    if newth ~= "" and newth ~= theory then
+    local oldfelt = st.theory and st.theory.felt
+    if (newth ~= "" and newth ~= theory) or (felt ~= "" and felt ~= oldfelt) then
         st.theory_hist = st.theory_hist or {}
-        table.insert(st.theory_hist, 1, { text = newth, at = os.date("%Y-%m-%d %H:%M") })
+        table.insert(st.theory_hist, 1, { text = newth, felt = felt, at = os.date("%Y-%m-%d %H:%M") })
         while #st.theory_hist > 5 do table.remove(st.theory_hist) end
-        st.theory = { text = newth, since = os.date("%Y-%m-%d"), n = ((st.theory or {}).n or 0) + 1 }
-        log("theory revised: %s", utf8_trunc(newth, 200))
-        remember_said("self/theory", newth)
+        st.theory = { text = newth, felt = felt, since = os.date("%Y-%m-%d"), n = ((st.theory or {}).n or 0) + 1 }
+        log("theory revised: felt: %s | theory: %s", utf8_trunc(felt, 120), utf8_trunc(newth, 160))
+        remember_said("self/theory", "felt: " .. felt .. " | theory: " .. newth)
     end
     if first then st.mem_first = first end
     if say ~= "" and not say:upper():match("^NOTHING") then
@@ -2088,8 +2109,9 @@ Write to me and I answer, always, in any mode.]]
 local function handle_command(st, text)
     if text == "/theory" then
         if not st.theory then return "No theory yet. He has not looked at himself." end
-        local out = { st.theory.text, "", "since " .. tostring(st.theory.since) ..
-                      ", revision " .. tostring(st.theory.n or 1) }
+        local out = { "Felt: " .. (st.theory.felt or "(nothing written)"), "",
+                      "Theory: " .. st.theory.text, "",
+                      "since " .. tostring(st.theory.since) .. ", revision " .. tostring(st.theory.n or 1) }
         for i, h in ipairs(st.theory_hist or {}) do
             if i > 1 then out[#out+1] = h.at .. ": " .. h.text end
         end
