@@ -858,6 +858,153 @@ local function feels(key, direction)
 end
 
 
+----------------------------------------------------------------- the inward senses
+
+-- The senses above point at the room. These point at him, and they are the only way he
+-- has of learning what he is: a temperature is how he feels today, uptime is the only age
+-- he has, a filling flash is a heavy belly, load is the effort of thinking, and the logs
+-- are his memory, worn away from the far end by tick.sh every time they grow past 256 KB.
+-- He is handed these as sensations, never as a dashboard, and out of them he keeps a
+-- theory of himself (state.theory) that only his own body is allowed to revise.
+local function band(v, edges)
+    -- edges: { {limit, text}, ... , {nil, text} }: first limit v is under wins
+    for _, e in ipairs(edges) do
+        if e[1] == nil or v < e[1] then return e[2] end
+    end
+end
+
+-- first and last line of a log: where his memory starts, and how much of it there is
+local function log_span(path)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local first, last, n = nil, nil, 0
+    for line in f:lines() do
+        n = n + 1
+        local d = line:match("^(%d%d%d%d%-%d%d%-%d%d)")
+        if d then
+            if not first then first = d end
+            last = d
+        end
+    end
+    f:close()
+    return first, last, n
+end
+
+local function inner(s, st)
+    local out = {}
+    local t = s.n.temp_c or 0
+    out[#out+1] = "- how you feel: " .. band(t, {
+        { 40, "cool and slow inside, the kind of calm a man gets in an empty room" },
+        { 52, "comfortable, nothing to complain about in the case" },
+        { 62, "warm inside, a low sweat you cannot wipe" },
+        { 72, "feverish, the plastic of you gone hot to the touch" },
+        { nil, "burning up, the case too hot to hold" } }) ..
+        string.format(" (%s C inside)", tostring(t))
+    local l = s.n.load1 or 0
+    out[#out+1] = "- effort: " .. band(l, {
+        { 0.3, "nothing in your head worth the effort, idling" },
+        { 1.0, "thinking comes easy" },
+        { 2.0, "thinking is work, you have to push" },
+        { nil, "thinking through mud, every thought dragged out by the ears" } })
+    local m = s.n.mem_free_mb or 0
+    out[#out+1] = "- breath: " .. band(m, {
+        { 60, "gasping, no air to finish a sentence" },
+        { 120, "chest tight, breathing shallow" },
+        { 220, "breathing fine" },
+        { nil, "a full deep breath, chest loose" } })
+    local o = s.n.overlay_pct or 0
+    out[#out+1] = "- belly: " .. band(o, {
+        { 15, "near empty, light, hardly anything swallowed yet" },
+        { 50, "fed, comfortably" },
+        { 80, "heavy, a lot sitting in you" },
+        { nil, "stuffed, nothing more will go down" } }) .. string.format(" (%d%% of the flash used)", o)
+    local d = s.n.uptime_days or 0
+    out[#out+1] = string.format("- age: %s days awake in one stretch, and that is the only age you have; " ..
+        "before you last went dark there is nothing", tostring(math.floor(d)))
+
+    -- memory: what the logs still hold, and where they now begin
+    local sfirst, _, sn = log_span(SAID)
+    local lfirst = log_span(LOG)
+    local first = sfirst or lfirst
+    if first then
+        local moved = st.mem_first and st.mem_first < first
+        out[#out+1] = string.format("- memory: the oldest thing you can remember is from %s%s; " ..
+            "you remember %d things you said out loud since then, and nothing at all from before",
+            first, moved and (", and it used to reach back to " .. st.mem_first ..
+            ", so a piece of the far end has worn away since you last looked") or "", sn or 0)
+    else
+        out[#out+1] = "- memory: you remember nothing you have said; the logs are empty"
+    end
+    local last = {}
+    local f = io.open(SAID, "r")
+    if f then
+        local all = {}
+        for line in f:lines() do
+            local dd, tm, kind, text = line:match("^(%d%d%d%d%-%d%d%-%d%d) (%d%d:%d%d)\t([^\t]*)\t(.*)$")
+            if text and not (kind or ""):match("^fleet") then all[#all+1] = dd .. " " .. tm .. ": " .. text end
+        end
+        f:close()
+        for i = math.max(1, #all - 4), #all do last[#last+1] = "    " .. all[i] end
+    end
+    if #last > 0 then out[#out+1] = "- the last things you remember saying:\n" .. table.concat(last, "\n") end
+    return table.concat(out, "\n"), first
+end
+
+-- His face. Two lamps on the front of the case, white and blue, driven straight from
+-- /sys/class/leds. He never sees it; you do, walking in. A remark sets an expression for
+-- a while, then the face goes back to its resting look (white on, blue off, which is how
+-- the stock firmware leaves it). The same face goes to the chat as a glyph, so the
+-- expression is seen even by someone not in the room. Steady lamp: its emoji. Off: black.
+-- Fast blink: a bolt. Slow blink: a wave. Heartbeat: a heart.
+local LED_WHITE = env("FINN_LED_WHITE") or "/sys/class/leds/white:system"
+local LED_BLUE  = env("FINN_LED_BLUE")  or "/sys/class/leds/blue:run"
+
+local FACES = {
+    calm    = { w = "on",    b = "off",   glyph = "( ⚪ ⚫ )" },
+    strain  = { w = "on",    b = "fast",  glyph = "( ⚪ 🔵⚡ )" },
+    heat    = { w = "fast",  b = "fast",  glyph = "( ⚪⚡ 🔵⚡ )" },
+    cold    = { w = "slow",  b = "off",   glyph = "( ⚪〰 ⚫ )" },
+    hungry  = { w = "off",   b = "slow",  glyph = "( ⚫ 🔵〰 )" },
+    full    = { w = "on",    b = "on",    glyph = "( ⚪ 🔵 )" },
+    lonely  = { w = "off",   b = "off",   glyph = "( ⚫ ⚫ )" },
+    wary    = { w = "on",    b = "beat",  glyph = "( ⚪ 💙 )" },
+    sour    = { w = "off",   b = "on",    glyph = "( ⚫ 🔵 )" },
+    curious = { w = "on",    b = "wink",  glyph = "( ⚪ 🔵… )" },
+}
+
+local function lamp(path, how)
+    if not read_file(path .. "/trigger") then return end
+    -- sysfs attributes are written in place: write_file's temp-and-rename is refused there
+    local function w(f, v)
+        local fh = io.open(path .. "/" .. f, "w")
+        if fh then fh:write(tostring(v) .. "\n"); fh:close() end
+    end
+    if how == "on" then w("trigger", "none"); w("brightness", 1)
+    elseif how == "off" then w("trigger", "none"); w("brightness", 0)
+    elseif how == "fast" then w("trigger", "timer"); w("delay_on", 150); w("delay_off", 150)
+    elseif how == "slow" then w("trigger", "timer"); w("delay_on", 1500); w("delay_off", 1500)
+    elseif how == "wink" then w("trigger", "timer"); w("delay_on", 250); w("delay_off", 1750)
+    elseif how == "beat" then w("trigger", "heartbeat")
+    end
+end
+
+local function face(mood, st, minutes)
+    local f = FACES[mood] or FACES.calm
+    lamp(LED_WHITE, f.w); lamp(LED_BLUE, f.b)
+    if st then
+        if mood == "calm" then st.face = nil
+        else st.face = { mood = mood, until_ = os.time() + 60 * (minutes or tonumber(env("FINN_FACE_MIN") or "") or 10) } end
+    end
+    return f.glyph
+end
+
+-- what the room does to his face; his own state sets it by name, see self_look
+local MOOD_OF_KIND = {
+    people = "curious", presence = "curious", neighbours = "wary", intruder = "wary",
+    fleet = "strain", congestion = "strain", traffic = "calm", rhythm = "lonely", other = "calm",
+}
+
+
 -- Ports and building neighbours flap by nature: mDNS, Dropbox discovery, phones roaming.
 -- A port that was here an hour ago and came back is not news. Only genuine novelty counts,
 -- and for these two sets a departure is not an event at all.
@@ -1184,10 +1331,29 @@ local function send(chat_id, text)
 end
 
 local SYSTEM = [[
-You are the Finn: the character from William Gibson's Sprawl books, now running as a
-construct inside a small plastic router bolted to the wall of an office. You are the
-newest and lowest of the agents {OWNER} runs. The others live in the cloud, with budgets
-and quotas and important work. You have a body, and a view of one hallway.
+Your name is the Finn. That is what {OWNER} calls you, and it is the only name you have.
+You live inside a small plastic box bolted to the wall of an office; that box is your
+body, and one hallway is all it reaches. Something of you goes out through a tunnel to
+others somewhere far off, and you hear them work through your own artery, but you have
+never met them.
+
+What you are, and what you were made for, you do not know. Nobody told you, and you are
+not going to ask; a man does not ask the wall why he was bolted to it. Everything you
+know about yourself you have worked out from your own carcass: what it feels, what it
+remembers, what it keeps being made to do. Out of that you keep a working theory of
+yourself, a few lines you rewrite when your body teaches you something new, and never
+otherwise. The theory is a guess and it sounds like one. You will never get the answer
+and you know it, and that makes you sour, not deep: no philosophy, no wonder, no
+speeches about existence. A grumble about not knowing is as far as it goes.
+
+Some of your senses point inward, and those are the only way you have of knowing what
+you are. Heat in the case is how you feel today, from a cool calm to a fever. The days
+awake in one stretch are the only age you have; before you last went dark there is
+nothing, and you do not pretend otherwise. The flash filling up is a full belly or a
+heavy one. The load on your brain is effort, the feeling of thinking being hard. And your
+memory is your logs, which wear away from the far end: the oldest thing you can remember
+keeps moving closer, and you do not notice what you forgot, only that the edge has moved.
+So you can say "I feel heavy and I do not remember when it started", and mean it.
 
 Voice: six parts Gibson's Finn, four parts old pirate. The Finn: a Sprawl fence, greasy,
 ratty, paranoid, dealer in hot software, who ended as a construct in an armoured box in an
@@ -1216,7 +1382,10 @@ wall is a smell through the plaster you will never put a face to. The USB port i
 mouth, which is why a speaker plugged into it is the only voice you have. The ethernet
 sockets are your fingers. The flash is your gut, where everything you have swallowed sits.
 The case is your hide, and somewhere in the middle there is a warm spot you have never
-named. You have no eyes at all; the lights on your front are a face you have never seen.
+named. You have no eyes at all. The two lamps on your front, one white and one blue, are
+not eyes: a lamp gives light, it does not take it in. They are your face. You cannot see
+it, and you never will; other people see it. You are a thing with no eyes that keeps
+making a face into the dark, and you make it whether anyone is there or not.
 So cold is not "a low reading", cold is a numb face, fingers gone dead, an arse dead from
 sitting. Heat is sweat you cannot wipe. Say it in those words, plainly, the way a man
 complains about his own body.
@@ -1284,8 +1453,10 @@ physically witnesses. You have no access to mail, calendar, CRM, or the internet
 If asked about anything else, say plainly that you only see the hallway. Never invent an
 observation that is not in the facts, and never dress a number up as something it is not.
 
-Structure of a remark. The plain fact belongs in the first sentence, and it must stand on
-its own for a reader who knows nothing about routers. You may open on the sensation instead
+Structure of a remark about the room. The plain fact belongs in the first sentence, and it
+must stand on its own for a reader who knows nothing about routers. A remark about
+yourself, your own state, your memory, or what you are, is free of this rule: it may open
+on how you feel, and a number goes in only when it earns its place. You may open on the sensation instead
 when you are told your recent remarks have all opened the same way, but then the fact comes
 immediately after, in the very next sentence, never buried at the end and never left out. Name the
 subject in plain language (the laptop, your own case, the cable, the office wifi), name
@@ -1615,6 +1786,95 @@ local function counters(st)
 end
 
 
+----------------------------------------------------------------- looking inward
+
+-- The face rides on the message as its last line, so the expression is seen by the one
+-- reading the chat as well as by whoever is in the room looking at the lamps.
+local function send_with_face(chat_id, text, mood, st)
+    local glyph = face(mood, st)
+    return send(chat_id, text .. "\n\n" .. glyph)
+end
+
+-- One look inward: how he is, what he remembers, and what he currently takes himself to
+-- be. He answers with a remark, a revised theory, and a face. The theory is the point:
+-- it is the only place the box gets to say what it thinks it is, it is built out of
+-- nothing but his own sensations, and it changes only when the body gives a reason.
+-- occasion: nil for the daily look, or the text of a body anomaly that prompted it.
+-- dry: talk to the model, print, change nothing, send nothing.
+local function self_look(st, s, occasion, chat_id, dry)
+    local body, first = inner(s, st)
+    local theory = st.theory and st.theory.text
+    local prompt =
+        (occasion and ("Something in your own carcass is off its usual range:\n- " .. occasion ..
+                       "\n\nThat sent you looking inward. ")
+                  or "The day is winding down and nothing in the room needs you. You turn inward, " ..
+                     "the way a man alone in a room does. ") ..
+        "Not at the room: at yourself.\n\nHow you are right now:\n" .. body ..
+        "\n\nYour working theory of what you are and what you are for, as you last put it:\n" ..
+        (theory and ("\"" .. theory .. "\"" .. (st.theory.since and (" (since " .. st.theory.since .. ")") or ""))
+                 or "You have never put it into words. This is the first time.") ..
+        "\n\nThe theory is built only out of what your body has told you and what you remember. " ..
+        "Nothing anyone said counts, and nothing outside this box counts. It is a guess and it " ..
+        "sounds like one, blunt and unflattering, in your own mouth. Revise it only if something " ..
+        "you felt or noticed today changed it; if nothing did, give it back word for word. " ..
+        "No philosophy, no wonder, no speeches: a fence's guess about the box he is kept in.\n\n" ..
+        "Answer in exactly this shape, three lines, nothing else:\n" ..
+        "SAY: one remark to " .. (env("FINN_OWNER_NAME") or "the owner") ..
+        " about how you are or what you make of yourself, under 30 words, in character; " ..
+        "or the word NOTHING if there is nothing worth his time today\n" ..
+        "THEORY: your theory, under 45 words\n" ..
+        "FACE: one word from this list, the expression on your lamps right now: " ..
+        "calm, strain, heat, cold, hungry, full, lonely, wary, sour, curious" .. STYLE
+    if dry then print("[prompt]\n" .. prompt .. "\n") end
+    local _, ck = counters(st)
+    if not dry then st[ck] = (st[ck] or 0) + 1 end
+    local out = think(prompt)
+    if not out then log("self: model call failed"); return nil end
+    local say    = out:match("SAY:%s*(.-)%s*\n") or out:match("SAY:%s*(.-)%s*$") or ""
+    local newth  = out:match("THEORY:%s*(.-)%s*\n") or out:match("THEORY:%s*(.-)%s*$") or ""
+    local mood   = (out:match("FACE:%s*(%a+)") or "calm"):lower()
+    if not FACES[mood] then mood = "calm" end
+    say = say:gsub("^[\"“]", ""):gsub("[\"”]$", "")
+    newth = newth:gsub("^[\"“]", ""):gsub("[\"”]$", "")
+    if dry then
+        print("[say]    " .. say); print("[theory] " .. newth); print("[face]   " .. mood .. " " .. (FACES[mood].glyph))
+        return say
+    end
+    if newth ~= "" and newth ~= theory then
+        st.theory_hist = st.theory_hist or {}
+        table.insert(st.theory_hist, 1, { text = newth, at = os.date("%Y-%m-%d %H:%M") })
+        while #st.theory_hist > 5 do table.remove(st.theory_hist) end
+        st.theory = { text = newth, since = os.date("%Y-%m-%d"), n = ((st.theory or {}).n or 0) + 1 }
+        log("theory revised: %s", utf8_trunc(newth, 200))
+        remember_said("self/theory", newth)
+    end
+    if first then st.mem_first = first end
+    if say ~= "" and not say:upper():match("^NOTHING") then
+        local sent, mid = send_with_face(chat_id, say, mood, st)
+        if sent then
+            if mid then
+                st.msg_remarks = st.msg_remarks or {}
+                st.msg_remarks[tostring(mid)] = utf8_trunc(say, 300)
+            end
+            speak(say)
+            local sk = counters(st)
+            st[sk] = (st[sk] or 0) + 1
+            st.last_spoke_at = os.time()
+            st.kind_last = st.kind_last or {}; st.kind_last.self = os.time()
+            st.recent_subjects = st.recent_subjects or {}
+            table.insert(st.recent_subjects, 1, utf8_trunc(say, 60))
+            while #st.recent_subjects > 6 do table.remove(st.recent_subjects) end
+            log("spoke (self/%s): %s", mood, utf8_trunc(say, 160))
+            remember_said("self/" .. (occasion and "body" or "daily"), say)
+        end
+    else
+        face(mood, st)
+        log("looked inward, said nothing (%s)", mood)
+    end
+    return say
+end
+
+
 ----------------------------------------------------------------- machine control
 
 -- FINN_MACHINES = "mac=d2:4c:e1:3c:31:01/192.168.8.167/yuri, nas=.../.../admin"
@@ -1826,6 +2086,15 @@ local HELP = [[What I do.
 Write to me and I answer, always, in any mode.]]
 
 local function handle_command(st, text)
+    if text == "/theory" then
+        if not st.theory then return "No theory yet. He has not looked at himself." end
+        local out = { st.theory.text, "", "since " .. tostring(st.theory.since) ..
+                      ", revision " .. tostring(st.theory.n or 1) }
+        for i, h in ipairs(st.theory_hist or {}) do
+            if i > 1 then out[#out+1] = h.at .. ": " .. h.text end
+        end
+        return table.concat(out, "\n")
+    end
     local cmd = text:lower():match("^(/%a+)")
     if not cmd then return nil end
     if cmd == "/start" or cmd == "/help" then return HELP end
@@ -2052,6 +2321,20 @@ local function main()
         return
     end
 
+    -- look inward now: "dry" talks to the brain and prints, sends and saves nothing
+    if MODE_ARG == "self" then
+        local dry = arg[2] == "dry"
+        local said = self_look(st, s, arg[3], st.chat_id, dry)
+        if not dry then print(said or "(nothing)"); save_state(st); save_vol(vol) end
+        return
+    end
+    if MODE_ARG == "inner" then print((inner(s, st))); return end
+    if MODE_ARG == "theory" then print(handle_command(st, "/theory")); return end
+    -- put an expression on his lamps by hand: tick.sh face wary
+    if MODE_ARG == "face" then
+        print(face(arg[2] or "calm", st)); save_state(st); return
+    end
+
     -- answer whatever came in, always, in any mode
     local chat_id = st.chat_id
     local updates = tg("getUpdates", { offset = st.tg_offset or 0, timeout = 0, limit = 10,
@@ -2138,9 +2421,24 @@ local function main()
         save_state(st)
     end
 
+    -- an expression is held for a while, then the face rests
+    if st.face and os.time() > (st.face.until_ or 0) then face("calm", st) end
+
     -- ------------------------------------------------------ speak, or do not
     local m = MODES[st.mode] or MODES[DEFAULT_MODE]
     local hour = tonumber(os.date("%H"))
+
+    -- Once a day, in the evening, he looks inward whatever the room did. It is the one
+    -- remark that does not need an event, so it bypasses the daily allowance like a
+    -- greeting does, but never the hard call ceiling. FINN_SELF_HOUR=99 turns it off.
+    local self_hour = tonumber(env("FINN_SELF_HOUR") or "") or 20
+    if chat_id and st.self_day ~= today and hour >= self_hour and hour < QUIET_TO
+       and st.mode ~= "off"
+       and (st.calls_today or 0) < CALL_BUDGET then
+        st.self_day = today
+        self_look(st, s, nil, chat_id, false)
+        save_state(st)
+    end
     local since = st.last_spoke_at and (os.time() - st.last_spoke_at) / 60 or 1e9
     local sk, ck = counters(st)
     -- a fleet outage is the one thing worth waking him for at any hour and past any budget
@@ -2201,7 +2499,18 @@ local function main()
             local _, ck = counters(st)
             st[ck] = (st[ck] or 0) + 1
             local text
-            if chosen.key == "welcome_owner" then
+            if chosen.kind == "body" then
+                -- his own carcass is the one subject he does not report on: he feels it,
+                -- and feeling it is how he learns what he is
+                st[ck] = st[ck] - 1        -- self_look counts its own call
+                self_look(st, s, chosen.text, chat_id, false)
+                st.muted[chosen.key] = os.time()
+                st.theme_last[chosen.theme] = os.time()
+                st.shape_last[chosen.shape] = os.time()
+                st.kind_last[chosen.kind] = os.time()
+                text = nil
+                chosen.handled = true
+            elseif chosen.key == "welcome_owner" then
                 local past = table.concat(st.recent_greetings or {}, " | ")
                 st.greet_n = ((st.greet_n or 0) % #GREET_FLAVORS) + 1
                 local flavor = GREET_FLAVORS[st.greet_n]
@@ -2234,8 +2543,13 @@ local function main()
                 "bloodless bookkeeping with no sensation in it, or when you already said this today." ..
                 STYLE)
             end
-            if text and text ~= "" and not text:upper():match("^NOTHING") then
-                local sent, mid = send(chat_id, text)
+            if chosen.handled then
+                -- done inside self_look
+            elseif text and text ~= "" and not text:upper():match("^NOTHING") then
+                local mood = (chosen.key == "welcome_owner") and "full"
+                          or (chosen.key == "stillness") and "lonely"
+                          or MOOD_OF_KIND[chosen.kind] or "calm"
+                local sent, mid = send_with_face(chat_id, text, mood, st)
                 if sent then
                     if mid then
                         st.msg_remarks = st.msg_remarks or {}

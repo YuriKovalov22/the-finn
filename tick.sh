@@ -4,6 +4,10 @@
 #   /root/finn/tick.sh say "..."    make him speak on a given occasion
 #   /root/finn/tick.sh said         everything he has said, in full
 #   /root/finn/tick.sh think "..."  ask the brain a question, print the answer, post nothing
+#   /root/finn/tick.sh self [dry]   look inward now: remark, theory, face ("dry": print, change nothing)
+#   /root/finn/tick.sh inner        the inward senses as he is handed them, no model call
+#   /root/finn/tick.sh theory       his current theory of himself and its revisions
+#   /root/finn/tick.sh face <mood>  put an expression on the lamps by hand
 DIR=/root/finn
 LOCK=/tmp/finn.lock
 
