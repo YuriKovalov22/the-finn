@@ -49,6 +49,9 @@ ssh "$ROUTER" 'mkdir -p /root/finn && chmod 700 /root/finn'
 ssh "$ROUTER" 'cat > /root/finn/finn.lua' < finn.lua
 ssh "$ROUTER" 'cat > /root/finn/tick.sh'  < tick.sh
 ssh "$ROUTER" 'cat > /root/finn/env && chmod 600 /root/finn/env' < env
+# the gong /alarm rings; harmless on a router with no speaker, and it is never played
+# unless an alarm is set
+ssh "$ROUTER" 'mkdir -p /root/bell && cat > /root/bell/gong.wav' < sounds/gong.wav
 ssh "$ROUTER" 'chmod +x /root/finn/finn.lua /root/finn/tick.sh'
 
 say "installing the minute tick"

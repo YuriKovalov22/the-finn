@@ -2091,6 +2091,82 @@ end
 
 ----------------------------------------------------------------- bot commands
 
+----------------------------------------------------------------- alarms
+
+-- A clock is not an anomaly, and this is the only sound he makes that he did not
+-- decide to make: a time set from the chat, rung whatever /voice says. The times
+-- live in a plain file that tick.sh reads before it takes the lock, so the gong is
+-- on time even while a tick is in flight, the brain unreachable, or lua itself
+-- broken; state.json holds them only so they survive a restart. He is never told
+-- about any of it and it never reaches said.log. A noise out of his mouth on
+-- somebody else's schedule is not a remark, and handing it to him would only give
+-- him something to be wrong about.
+local ALARMS = DIR .. "/alarms"
+
+-- both spellings, and matched whole: "tue" abbreviates Tuesday, "tuesdayish" is a typo
+-- and has to be told so rather than quietly read as Tuesday
+local DAYS = {
+    mon = 1, monday = 1, tue = 2, tuesday = 2, wed = 3, wednesday = 3, thu = 4, thursday = 4,
+    fri = 5, friday = 5, sat = 6, saturday = 6, sun = 7, sunday = 7,
+}
+local DAYNAME = { "mon", "tue", "wed", "thu", "fri", "sat", "sun" }
+
+-- "mon-fri", "daily", "sat,sun", "tue", or nothing at all, which means every day
+local function parse_days(s)
+    if not s or s:match("^%s*$") then return "1234567" end
+    s = s:lower():gsub("%s+", "")
+    if s == "daily" or s == "everyday" then return "1234567" end
+    if s == "weekdays" then return "12345" end
+    if s == "weekend" or s == "weekends" then return "67" end
+    local seen = {}
+    local from, to = s:match("^(%a+)%-(%a+)$")
+    if from then
+        local a, b = DAYS[from], DAYS[to]
+        if not (a and b) then return nil end
+        local i = a
+        for _ = 1, 7 do
+            seen[i] = true
+            if i == b then break end
+            i = i % 7 + 1
+        end
+    else
+        for tok in s:gmatch("[^,]+") do
+            local d = DAYS[tok]
+            if not d then return nil end
+            seen[d] = true
+        end
+    end
+    local out = ""
+    for i = 1, 7 do if seen[i] then out = out .. i end end
+    return (#out > 0) and out or nil
+end
+
+local function days_name(d)
+    if d == "1234567" then return "every day" end
+    if d == "12345" then return "mon-fri" end
+    if d == "67" then return "sat,sun" end
+    local out = {}
+    for c in d:gmatch("%d") do out[#out+1] = DAYNAME[tonumber(c)] end
+    return table.concat(out, ",")
+end
+
+-- The file is what rings; it is rewritten only when it differs, because this box
+-- boots off flash that wears out. One line each: HH:MM, a tab, the weekday digits.
+local function alarms_write(st)
+    local lines = {}
+    for _, a in ipairs(st.alarms or {}) do lines[#lines+1] = a.at .. "\t" .. a.days end
+    table.sort(lines)
+    local data = (#lines > 0) and (table.concat(lines, "\n") .. "\n") or ""
+    if read_file(ALARMS) ~= data then write_file(ALARMS, data) end
+end
+
+local function alarms_list(st, sep)
+    local out = {}
+    for _, a in ipairs(st.alarms or {}) do out[#out+1] = a.at .. (sep or "  ") .. days_name(a.days) end
+    table.sort(out)
+    return out
+end
+
 local HELP = [[What I do.
 
 /status  how I am right now
@@ -2100,6 +2176,7 @@ local HELP = [[What I do.
 /chatty  at most 10 a day
 /test    no limit, one a minute, 2 hours, then back to chatty on my own
 /voice   pip, talk or shut up: /voice beep | speak | off
+/alarm   ring the gong at a set time: /alarm 15:20 mon-fri
 /machines  the machines I can reach and which are awake
 /wake <name>  wake one (WOL)
 /sleep <name> put one to sleep (over ssh)
@@ -2133,6 +2210,67 @@ local function handle_command(st, text)
             "/voice beep to pip, /voice speak to talk, /voice off to shut up.",
             mode, has_speaker() and "plugged in" or "not plugged in",
             env("FINN_VOICE_FROM") or "9", env("FINN_VOICE_TO") or "19")
+    end
+    if cmd == "/alarm" then
+        st.alarms = st.alarms or {}
+        local rest = (text:match("^/%a+%s*(.-)%s*$") or ""):gsub("%s+", " ")
+        local function show()
+            local list = alarms_list(st)
+            if #list == 0 then
+                return "No gong set. /alarm 15:20 mon-fri and I'll ring it then, whatever " ..
+                       "/voice is set to. Days are optional: daily, mon-fri, weekend, sat,sun."
+            end
+            return "Gong at:\n" .. table.concat(list, "\n") ..
+                   "\n\n/alarm test to hear it, /alarm off 15:20 to drop one, /alarm off for all."
+        end
+        if rest == "" then return show() end
+        if rest:lower() == "test" then
+            if not has_speaker() then return "Nothing to ring it on. Nothing plugged into my mouth." end
+            sh(DIR .. "/tick.sh gong >/dev/null 2>&1 &")
+            return "Ringing it now."
+        end
+        local off = rest:lower():match("^off%s*(.*)$")
+        if off then
+            if off == "" then
+                if #st.alarms == 0 then return "Nothing was set." end
+                st.alarms = {}
+                alarms_write(st)
+                return "All off. Back to my own schedule, which is none."
+            end
+            local hh, mm = off:match("^(%d%d?):(%d%d)$")
+            if not hh then return "Say which one: /alarm off 15:20, or /alarm off for the lot." end
+            local at = string.format("%02d:%02d", tonumber(hh), tonumber(mm))
+            local kept = {}
+            for _, a in ipairs(st.alarms) do
+                if a.at ~= at then kept[#kept+1] = a end
+            end
+            if #kept == #st.alarms then return "Nothing set for " .. at .. "." end
+            st.alarms = kept
+            alarms_write(st)
+            return at .. " off."
+        end
+        local hh, mm, days = rest:match("^(%d%d?):(%d%d)%s*(.*)$")
+        if not hh then
+            return "I read a time and days: /alarm 15:20 mon-fri. Or /alarm off, /alarm test."
+        end
+        hh, mm = tonumber(hh), tonumber(mm)
+        if hh > 23 or mm > 59 then return "There's no such hour on my clock." end
+        local d = parse_days(days)
+        if not d then
+            return "I don't know those days. mon tue wed thu fri sat sun, a range like " ..
+                   "mon-fri, a list like sat,sun, or daily."
+        end
+        local at = string.format("%02d:%02d", hh, mm)
+        local found = false
+        for _, a in ipairs(st.alarms) do
+            if a.at == at then a.days = d; found = true end
+        end
+        if not found then st.alarms[#st.alarms+1] = { at = at, days = d } end
+        alarms_write(st)
+        if not has_speaker() then
+            return at .. ", " .. days_name(d) .. ". Set, but there's nothing plugged into my mouth to ring it with."
+        end
+        return at .. ", " .. days_name(d) .. ". I'll ring it."
     end
     if cmd == "/wake" or cmd == "/sleep" or cmd == "/machines" then
         local list = machines()
@@ -2211,7 +2349,8 @@ local function handle_command(st, text)
             (env("FINN_MODEL") or MODELS[env("FINN_PROVIDER") or PROVIDER]),
             st[(select(2, counters(st)))] or 0, (mode == "test") and TEST_CALL_CAP or CALL_BUDGET,
             ((st.last_spoke_at or 0) > 0) and os.date("%H:%M", st.last_spoke_at) or "not yet",
-            st.test_until and ("\nTest ends at " .. os.date("%H:%M", st.test_until) .. ".") or "")
+            (st.test_until and ("\nTest ends at " .. os.date("%H:%M", st.test_until) .. ".") or "") ..
+            ((#alarms_list(st) > 0) and ("\nGong at " .. table.concat(alarms_list(st, " "), ", ") .. ".") or ""))
     end
     return nil
 end

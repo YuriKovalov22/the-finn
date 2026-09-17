@@ -324,6 +324,7 @@ at no cost:
 | `/chatty` | at most 10 a day, 15 minutes apart |
 | `/test` | no daily ceiling, one a minute, for two hours, then back to `/chatty` by itself |
 | `/voice` | `beep` plays a pip when he posts, `speak` reads the remark aloud, `off` keeps him to Telegram |
+| `/alarm` | ring the gong at a set time: `/alarm 15:20 mon-fri`, `/alarm off`, `/alarm test` |
 | `/machines` | lists the machines he can control and which are awake |
 | `/wake <name>` | sends a WOL magic packet, waits, and tells you whether it actually came up |
 | `/sleep <name>` | sleeps the machine over SSH |
@@ -382,6 +383,42 @@ Plug a class-compliant USB speaker into the router and he can be heard as well a
 
 Either way it only makes noise between `FINN_VOICE_FROM` and `FINN_VOICE_TO`, 9 to 19 by
 default, and never when no sound card is present.
+
+## A gong at a fixed time
+
+Everything else he says is decided by what the room did. This one thing is decided by a
+clock, and it is the only sound he makes that he did not choose to make.
+
+```
+/alarm                 what is set
+/alarm 15:20 mon-fri   ring the gong then
+/alarm 7:30            no days means every day
+/alarm 10:00 sat,sun   a list, a range like mon-thu, or daily, weekdays, weekend
+/alarm test            hear it now
+/alarm off 15:20       drop that one
+/alarm off             drop the lot
+```
+
+It rings whatever `/voice` is set to, `off` included, and at whatever hour you set, because
+an alarm you can silence by accident is not an alarm. `sounds/gong.wav` is a Tibetan bowl
+struck once: synthesised rather than sampled, by `sounds/mkgong.py`, which is forty lines of
+stdlib Python and no dependencies. A bowl is five inharmonic partials with their own decays,
+each split into two sines about a hertz apart so they beat against each other, and that
+beating is the whole sound; one clean sine per partial reads as a doorbell. Change the
+numbers and you have a different bowl. `FINN_ALARM_WAV` points at a sound of your own, and
+`FINN_GONG_VOLUME` is its own volume, louder than his speaking voice by default.
+
+The times live in `/root/finn/alarms`, one line each, and `tick.sh` reads them before it
+takes the lock and before lua starts. That plain file is the point: the gong is on time
+while a tick is in flight, while the model is thinking, and when the key or the uplink or
+the lua itself is broken. The card plays one thing at a time, so a gong that lands while he
+is talking retries for half a minute rather than being dropped.
+
+He is not told any of this and never mentions it. That is deliberate. A noise coming out of
+his mouth on somebody else's schedule is not an observation, and handing him one would only
+give him something to be wrong about.
+
+Mine rings at 15:20 on weekdays, which is when I have to leave.
 
 ## Cost and wear
 
